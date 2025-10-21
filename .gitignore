@@ -2,4 +2,6 @@
 
 /.env
 
-/.jpg
+/voters.json
+
+/votes.json
