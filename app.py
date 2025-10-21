@@ -1,51 +1,108 @@
 import os
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session, flash
+from datetime import datetime
 import random
 import string
-from datetime import datetime
-import re # NEW: Import for regular expressions (used in OCR parsing)
-import json # NEW: Import for handling JSON data for structured output
-from document_extracter import extract_text_from_file  # add this import
+import re
+import json
+import hashlib
+from functools import wraps
+
+# NOTE: document_extracter is assumed to be present for the OCR redirect logic
+try:
+    from document_extracter import extract_text_from_file 
+except ImportError:
+    print("Warning: 'document_extracter' not found. OCR simulation will be used.")
+    def extract_text_from_file(*args, **kwargs):
+        raise NotImplementedError("document_extracter module is missing.")
 
 
-
-# In-memory state for demonstration
-# This will be reset every time the server restarts
-results_approved = False
-# MODIFIED: In-memory store for simulated OCR text by file hash (since we can't save the actual file)
-# In a real app, this would be a full OCR service call
-SIMULATED_OCR_DATA = {
-    # MODIFIED: Updated the raw text format to better match the regex in parse_ocr_text
-    "sample-id-1234.jpg": 
-        "ID CARD\nCOUNTRY: UNITED STATES\nID NUMBER: US123456789\nFULL NAME: JOHN MICHAEL SMITH\nDATE OF BIRTH: 01/05/1990\nADDRESS: 123 Demo St, New York, NY 10001",
-    "sample-id-5678.pdf": 
-        "VOTER REGISTRATION DOCUMENT\nFULL NAME: JANE M. DOE\nDOB: 12-15-1985\nID NUMERO: JMD851215\nCOUNTRY: CANADA"
-}
-# --- END SIMULATION SETUP ---
+# --- Configuration & File Setup ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+JSON_FILE = os.path.join(BASE_DIR, 'voters.json') # Stores voter profiles
+VOTES_FILE = os.path.join(BASE_DIR, 'votes.json') # Stores cast vote records (NEW)
+SECRET_KEY = os.environ.get('SECRET_KEY', 'a_very_secret_key_for_truecast_sessions') 
 
 app = Flask(__name__)
+app.secret_key = SECRET_KEY
 
-# Helper function for demo purposes
+# --- JSON Database Functions ---
+
+def load_voters():
+    """Reads the voter data from the JSON file."""
+    if not os.path.exists(JSON_FILE):
+        with open(JSON_FILE, 'w') as f:
+             json.dump({}, f)
+        return {}
+    try:
+        with open(JSON_FILE, 'r') as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        with open(JSON_FILE, 'w') as f:
+             json.dump({}, f)
+        return {} 
+
+def save_voters(data):
+    """Writes the voter data back to the JSON file."""
+    with open(JSON_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
+        
+# --- Vote JSON Functions ---
+def load_votes():
+    """Reads the dictionary of cast votes from the JSON file."""
+    if not os.path.exists(VOTES_FILE):
+        with open(VOTES_FILE, 'w') as f:
+             json.dump({}, f) # Initialize as an empty dictionary
+        return {}
+    try:
+        with open(VOTES_FILE, 'r') as f:
+            data = json.load(f)
+            # Ensure it's a dictionary, not a list
+            return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, FileNotFoundError):
+        with open(VOTES_FILE, 'w') as f:
+             json.dump({}, f)
+        return {}
+
+def save_votes(data):
+    """Writes the vote dictionary back to the JSON file."""
+    with open(VOTES_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
+# --- End NEW Vote JSON Functions ---
+
+# --- Authentication Decorator (For Protecting Routes) ---
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'voter_id' not in session:
+            # Redirect to login if user is not in session
+            return redirect(url_for('voter_login', next=request.url))
+        return f(*args, **kwargs)
+    return decorated_function
+
+# --- Helper Functions ---
 def generate_hash_id(length=64):
     return '0x' + ''.join(random.choices(string.hexdigits.lower(), k=length))
 
-# NEW FUNCTION: Parses raw OCR text into structured fields
 def parse_ocr_text(text):
-    """Uses regex patterns to extract key fields from raw OCR text."""
-    # MODIFIED: Patterns for demo to extract key voter data
+    """
+    CORRECTED REGEX for clean extraction.
+    """
     patterns = {
-        'Full Name': r'(?:NAME|FULL NAME|NOM)[:\s]*([A-Z\s\.]{5,50})', 
-        'Date of Birth': r'(?:DOB|BIRTH DATE)[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})', 
-        'ID Number': r'(?:ID NUMBER|NO|NUMERO)[:.\s]*([A-Z0-9]{6,20})', 
-        'Country': r'(?:COUNTRY|PAYS)[:\s]*([A-Z\s]{3,20})',
+        'Full Name': r'(?:FULL NAME|NAME)[:\s]*(.*?)(?:DATE OF BIRTH|DOB|ADDRESS|ID NUMERO)', 
+        'Date of Birth': r'(?:DATE OF BIRTH|DOB)[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})', 
+        'ID Number': r'(?:ID NUMBER|ID NUMERO|NO)[:.\s]*([A-Z0-9]{6,20})', 
+        'Country': r'(?:COUNTRY|PAYS)[:\s]*(.*?)(?:\n|ID NUMBER|ID NUMERO)', 
     }
     
     parsed_data = {}
     for field, pattern in patterns.items():
-        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE | re.DOTALL) 
         if match:
             value = match.group(1).strip()
+            
             if field == 'Full Name':
+                value = re.sub(r'ID CARD|VOTER REGISTRATION DOCUMENT|ID NUMBER.*', '', value, flags=re.IGNORECASE).strip()
                 value = ' '.join(value.split())
             
             parsed_data[field] = value
@@ -54,7 +111,21 @@ def parse_ocr_text(text):
             
     return parsed_data
 
-# NEW ROUTE: Simulates the file upload, OCR, and returns parsed data
+# In-memory state for demonstration
+results_approved = False
+SIMULATED_OCR_DATA = {
+    "sample-id-1234.jpg": 
+        "ID CARD\nCOUNTRY: UNITED STATES\nID NUMBER: US123456789\nFULL NAME: JOHN MICHAEL SMITH\nDATE OF BIRTH: 01/05/1990\nADDRESS: 123 Demo St, New York, NY 10001",
+    "sample-id-5678.pdf": 
+        "VOTER REGISTRATION DOCUMENT\nFULL NAME: JANE M. DOE\nDOB: 12-15-1985\nID NUMERO: JMD851215\nCOUNTRY: CANADA"
+}
+
+# --- Routes ---
+
+@app.route('/')
+def home():
+    return render_template('truecast_landing.html')
+
 @app.route('/api/ocr_process', methods=['POST'])
 def ocr_process():
     files = request.files.getlist('idDocument')
@@ -62,13 +133,13 @@ def ocr_process():
         return jsonify({"success": False, "error": "No document uploaded."}), 400
 
     upload = files[0]
-    filepath = os.path.join("uploads", upload.filename)
-    os.makedirs("uploads", exist_ok=True)
-    upload.save(filepath)
+    simulated_raw_text = SIMULATED_OCR_DATA.get(
+        upload.filename, 
+        SIMULATED_OCR_DATA["sample-id-1234.jpg"]
+    )
 
     try:
-        raw_text = extract_text_from_file(filepath, api_key="AIzaSyAbRziB-Q0bgTR4RgolvofxMmsOrinLJB0")
-        parsed_data = parse_ocr_text(raw_text)
+        parsed_data = parse_ocr_text(simulated_raw_text)
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -76,40 +147,44 @@ def ocr_process():
         'voter_register',
         success_ocr="true",
         parsed_data=json.dumps(parsed_data),
-        ocr_results=json.dumps([raw_text])
+        ocr_results=json.dumps([simulated_raw_text])
     ))
 
-@app.route('/')
-def home():
-    return render_template('truecast_landing.html')
-
-# MODIFIED: Updated to handle the results from the OCR simulation 
-# via query parameters, as we did in the database version.
 @app.route('/voter-register', methods=['GET', 'POST'])
 def voter_register():
     if request.method == 'POST':
-        # MODIFIED: The form submits to /api/ocr_simulate, so this POST route is simplified
         data = request.form.to_dict()
         
-        # Example to show data being saved in a real world scenario
-        print(f"Simulating final registration save for: {data.get('email')}")
-        
-        # After successful final registration, clear params and show success
-        return render_template('truecast_voter_register.html', success="Voter registration simulated.")
+        # --- JSON Database Insertion Logic (Final Save) ---
+        voters = load_voters()
+        voter_id = f"VS{datetime.now().year}{random.randint(100000, 999999)}"
 
-    # Handle GET request (initial load or redirect after failed/successful OCR)
+        # Prepare the data
+        data['voter_id'] = voter_id
+        data['registration_date'] = datetime.utcnow().isoformat()
+        data['status'] = 'Active' 
+        data['backupPin'] = data.get('backupPin', '000000') 
+
+        # Add to the dictionary and save
+        voters[voter_id] = data
+        save_voters(voters)
+        # --- End JSON Database Insertion Logic ---
+        
+        success_msg = f"Registration complete! Your ID is {voter_id}. Use this and your PIN to log in."
+        # After saving, we now redirect to the login page for the final step.
+        return redirect(url_for('voter_login', success=success_msg))
+
+    # Handle GET request (initial load or redirect after OCR)
     success_ocr = request.args.get('success_ocr')
     success_msg = request.args.get('success')
     error_msg = request.args.get('error')
 
-    # Load data passed via query parameters after the OCR step
     parsed_data = {}
     ocr_results = []
     
     if success_ocr:
         try:
             parsed_data = json.loads(request.args.get('parsed_data', '{}'))
-            # OCR results is a list containing the raw text
             ocr_results = json.loads(request.args.get('ocr_results', '[]'))
             success_msg = "Identity document processed successfully. Please review."
         except json.JSONDecodeError:
@@ -127,55 +202,144 @@ def voter_register():
 def voter_login():
     if request.method == 'POST':
         data = request.get_json()
-        voter_id = data.get('voterId')
-        # Demo logic: Simulate login
-        if voter_id:
-            print(f"Simulating login for voter: {voter_id}")
-            return jsonify({"success": True, "message": "Login successful!"})
+        voter_id_or_email = data.get('voterId')
+        
+        voters = load_voters()
+        authenticated_voter = None
+
+        # --- JSON Database Lookup Logic ---
+        for voter_id, voter_data in voters.items():
+            # Check for match by voter_id OR email
+            if voter_data.get('voter_id') == voter_id_or_email or voter_data.get('email') == voter_id_or_email:
+                authenticated_voter = voter_data
+                break
+        # --- End JSON Database Lookup Logic ---
+
+        if authenticated_voter:
+            # Login successful: Establish session
+            session['voter_id'] = authenticated_voter['voter_id']
+            session['email'] = authenticated_voter['email']
+            session['full_name'] = authenticated_voter.get('Full Name', 'Voter')
+            
+            # The frontend is expecting a 'redirect' URL in the JSON response
+            next_url = request.args.get('next') or url_for('voting_dashboard')
+            return jsonify({"success": True, "message": "Login successful!", "redirect": next_url})
         else:
-            return jsonify({"success": False, "error": "Voter ID not found."}), 404
-    return render_template('truecast_voter_login.html')
+            return jsonify({"success": False, "error": "Voter ID or Email not found."}), 404
+    
+    # Render the login page (including the success message from registration redirect)
+    success_msg = request.args.get('success')
+    return render_template('truecast_voter_login.html', success=success_msg)
+
+@app.route('/logout')
+def logout():
+    session.pop('voter_id', None)
+    session.pop('email', None)
+    session.pop('full_name', None)
+    return redirect(url_for('voter_login'))
+
 
 @app.route('/voting-dashboard', methods=['GET', 'POST'])
+@login_required
 def voting_dashboard():
-    # MODIFIED: Removed in-memory vote storage to simplify demo, just returns success
+    voter_id = session.get('voter_id')
+    if not voter_id:
+        flash('Voter not found in session. Please log in again.', 'error')
+        return redirect(url_for('login'))
+
+    voters_data = load_voters()
+    voter_info = voters_data.get(voter_id)
+    if not voter_info:
+        flash('Voter information could not be loaded.', 'error')
+        return redirect(url_for('login'))
+
+    full_name = f"{voter_info.get('firstName', '')} {voter_info.get('lastName', '')}"
+    
+    votes_data = load_votes()
+    
     if request.method == 'POST':
         data = request.get_json()
-        voter_id = data.get('voterId')
         selections = data.get('selections')
         
-        # Demo logic: Simulate vote casting
-        print(f"Simulating vote cast by {voter_id} with selections: {selections}")
-        
-        transaction_hash = generate_hash_id()
-        return jsonify({"success": True, "transactionHash": transaction_hash})
-    return render_template('truecast_voting_dashboard.html')
+        if voter_id in votes_data and any(votes_data[voter_id].values()):
+            return jsonify({'success': False, 'error': 'Your vote has already been cast.', 'transactionHash': 'ALREADY_CAST'})
 
-@app.route('/vote-verification')
+        if not all(selections.values()):
+            return jsonify({'success': False, 'error': 'Please make a selection for all items.'})
+
+        # Generate the transaction hash and add it to the vote record
+        transaction_hash = f"0x{hashlib.sha256(json.dumps(data).encode()).hexdigest()}"
+        selections['transactionHash'] = transaction_hash
+
+        # Add the complete vote record (including hash) to the data
+        votes_data[voter_id] = selections
+        save_votes(votes_data)
+        
+        return jsonify({'success': True, 'transactionHash': transaction_hash})
+
+    # GET request logic
+    has_voted = False
+    previous_votes = {}
+    
+    if voter_id in votes_data:
+        # A user has voted only if their vote entry is not empty
+        if any(votes_data[voter_id].values()):
+            has_voted = True
+            previous_votes = votes_data[voter_id]
+        else:
+            # Entry exists but is empty, meaning they are registered to vote but haven't yet.
+            has_voted = False
+    
+    return render_template(
+        'truecast_voting_dashboard.html',
+        voter_id=voter_id,
+        full_name=full_name,
+        has_voted=has_voted,
+        previous_votes=previous_votes
+    )
+
+
+@app.route('/vote-verification', methods=['GET', 'POST'])
+@login_required
 def vote_verification():
     return render_template('truecast_vote_verification.html')
 
 @app.route('/api/verify_vote', methods=['POST'])
 def verify_vote():
-    # Demo logic for vote verification
     data = request.get_json()
     query = data.get('query')
-    print(f"Simulating vote verification for query: {query}")
     
-    demo_vote_data = {
-        "voterId": "DEMO-VOTER-123",
-        "selections": {"President": "Candidate A", "Mayor": "Candidate X"},
-        "transactionHash": "0x4b7c8d9e2a3f4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
-        "blockNumber": 15432,
-        "confirmations": 250,
-        "timestamp": datetime.now().isoformat(),
-        "blockHash": generate_hash_id()
-    }
+    all_votes = load_votes()
     
-    if query:
+    # Find a cast vote matching the hash or voter ID
+    vote_record = None
+    voter_id_found = None
+
+    for voter_id, vote_details in all_votes.items():
+        # Check if the query matches the voter's ID or their transaction hash
+        if voter_id == query or (isinstance(vote_details, dict) and vote_details.get('transactionHash') == query):
+            voter_id_found = voter_id
+            vote_record = vote_details
+            break
+    
+    if vote_record:
+        # Construct the response using the found vote record
+        demo_vote_data = {
+            "voterId": voter_id_found,
+            "election": "2025 General Election",
+            "timestamp": datetime.now().isoformat(), # Placeholder timestamp
+            "status": "Confirmed",
+            "transactionHash": vote_record.get('transactionHash', 'N/A'),
+            "blockNumber": random.randint(10000, 20000), 
+            "confirmations": random.randint(100, 500),
+            "gasUsed": random.randint(20000, 30000),
+            "networkFee": round(random.uniform(0.001, 0.005), 3),
+            "blockHash": generate_hash_id()
+        }
         return jsonify({"success": True, "data": demo_vote_data})
     
     return jsonify({"success": False, "error": "Vote not found."}), 404
+
 
 @app.route('/geo-verification')
 def geo_verification():
@@ -186,10 +350,10 @@ def admin_login():
     return render_template('truecast_admin_login.html')
 
 @app.route('/admin-dashboard')
+@login_required 
 def admin_dashboard():
     return render_template('truecast_admin_dashboard.html')
 
-# MODIFIED: Added implementation for the results approval route
 @app.route('/api/admin/approve-results', methods=['POST'])
 def approve_results():
     global results_approved
@@ -204,8 +368,8 @@ def results():
 @app.route('/api/results')
 def get_results():
     global results_approved
+    
     if results_approved:
-        # Hardcoded demo results
         demo_results = {
             "Mayor of Central City": {
                 "Sarah Johnson": 1250,
@@ -223,7 +387,6 @@ def get_results():
         }
         return jsonify({"success": True, "results": demo_results})
     else:
-        # MODIFIED: Consistent error response for frontend check
         return jsonify({"success": False, "message": "Results are not yet approved by admin."}), 200
 
 @app.route('/help')
@@ -251,8 +414,15 @@ def documentation():
 
 @app.errorhandler(404)
 def page_not_found(e):
-    # NOTE: You need a truecast_404.html template for this to work
     return render_template('404.html'), 404
 
 if __name__ == "__main__":
+    if not os.path.exists(VOTES_FILE):
+        try:
+            with open(VOTES_FILE, 'w') as f:
+                json.dump({}, f) # Ensure it's created as a dictionary
+            print(f"Created empty {VOTES_FILE}")
+        except Exception as e:
+            print(f"Error creating {VOTES_FILE}: {e}")
+            
     app.run(debug=True)
