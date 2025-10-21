@@ -335,7 +335,6 @@
             padding: 1rem;
             border-radius: 8px;
             margin: 1rem 0;
-            display: none;
         }
 
         .loading-spinner {
@@ -462,6 +461,14 @@
                 <h1>TRUECAST</h1>
                 <p>Voter Authentication</p>
             </div>
+            
+            <div class="success-message" id="successMessage" style="display: {{ 'block' if success else 'none' }}">
+                {% if success %}
+                    {{ success }}
+                {% else %}
+                    Successfully registered. Please log in!
+                {% endif %}
+            </div>
 
             <form id="loginForm">
                 <div class="form-group">
@@ -470,7 +477,6 @@
                 </div>
 
                 <div class="auth-methods">
-                    <!-- Biometric Authentication -->
                     <div class="auth-method" onclick="selectAuthMethod('biometric')">
                         <div class="auth-method-header">
                             <div class="auth-method-info">
@@ -494,7 +500,6 @@
                         </div>
                     </div>
 
-                    <!-- OTP Authentication -->
                     <div class="auth-method" onclick="selectAuthMethod('otp')">
                         <div class="auth-method-header">
                             <div class="auth-method-info">
@@ -527,7 +532,6 @@
                         </div>
                     </div>
 
-                    <!-- Backup PIN Authentication -->
                     <div class="auth-method" onclick="selectAuthMethod('pin')">
                         <div class="auth-method-header">
                             <div class="auth-method-info">
@@ -572,7 +576,7 @@
                 </div>
 
                 <div class="error-message" id="errorMessage"></div>
-                <div class="success-message" id="successMessage"></div>
+                <div class="success-message" id="loginSuccessMessage"></div>
 
                 <button type="submit" class="btn btn-success" id="loginBtn" style="display: none;">
                     Access Voting Dashboard
@@ -655,7 +659,7 @@
             // Simulate OTP verification
             setTimeout(() => {
                 document.getElementById('otp-status').innerHTML = '✅';
-                showMessage('OTP verified successfully!', 'success');
+                showMessage('OTP verified successfully!', 'loginSuccessMessage');
                 completeAuthStep('mfa');
             }, 1000);
         }
@@ -676,7 +680,7 @@
                     <p>Identity confirmed successfully</p>
                 `;
                 document.getElementById('biometric-status').innerHTML = '✅';
-                showMessage('Biometric authentication successful!', 'success');
+                showMessage('Biometric authentication successful!', 'loginSuccessMessage');
                 completeAuthStep('mfa');
             }, 3000);
         }
@@ -688,9 +692,10 @@
                 return;
             }
 
+            // Simulate PIN verification (in a real app, this would be an AJAX call)
             setTimeout(() => {
                 document.getElementById('pin-status').innerHTML = '✅';
-                showMessage('PIN verified successfully!', 'success');
+                showMessage('PIN verified successfully!', 'loginSuccessMessage');
                 completeAuthStep('mfa');
             }, 1000);
         }
@@ -726,7 +731,8 @@
                 setTimeout(() => {
                     updateStep('step4', 'completed');
                     authenticationSteps.blockchain = true;
-                    completeLogin();
+                    // Automatically enable the final access button
+                    completeLogin(); 
                 }, 5000);
             }
         }
@@ -743,65 +749,90 @@
         }
 
         function verifyGeoLocation() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        console.log('Location verified:', position.coords);
-                        authenticationSteps.geo = true;
-                    },
-                    (error) => {
-                        console.log('Location verification failed:', error);
-                        // Continue anyway for demo
-                        authenticationSteps.geo = true;
-                    }
-                );
-            } else {
-                authenticationSteps.geo = true;
-            }
+            // Simulate successful geo-location verification
+            authenticationSteps.geo = true;
         }
 
         function verifyBlockchain() {
             // Simulate blockchain verification
-            console.log('Verifying voter credentials on blockchain...');
             authenticationSteps.blockchain = true;
         }
 
         function completeLogin() {
             if (Object.values(authenticationSteps).every(step => step === true)) {
                 document.getElementById('loginBtn').style.display = 'block';
-                showMessage('Authentication complete! Click below to access your voting dashboard.', 'success');
+                // Show a generic success message that applies across all auth methods
+                showMessage('Authentication complete! Click below to access your voting dashboard.', 'loginSuccessMessage');
             }
         }
-
+        
+        // Helper to display messages to the correct div
         function showMessage(message, type) {
             const errorDiv = document.getElementById('errorMessage');
-            const successDiv = document.getElementById('successMessage');
+            const successDiv = document.getElementById('loginSuccessMessage');
             
             if (type === 'error') {
                 errorDiv.textContent = message;
                 errorDiv.style.display = 'block';
                 successDiv.style.display = 'none';
+                document.getElementById('successMessage').style.display = 'none'; // Hide registration message
             } else {
+                // Use the dedicated login success div for all in-page actions
                 successDiv.textContent = message;
                 successDiv.style.display = 'block';
                 errorDiv.style.display = 'none';
+                document.getElementById('successMessage').style.display = 'none'; // Hide registration message
             }
         }
 
         function hideMessage() {
             document.getElementById('errorMessage').style.display = 'none';
-            document.getElementById('successMessage').style.display = 'none';
+            document.getElementById('loginSuccessMessage').style.display = 'none';
         }
 
-        // Form submission
+        // Form submission (CRITICAL FIX)
         document.getElementById('loginForm').addEventListener('submit', function(e) {
             e.preventDefault();
             
+            // Check if all authentication steps (simulated) are complete
             if (Object.values(authenticationSteps).every(step => step === true)) {
-                showMessage('Login successful! Redirecting to voting dashboard...', 'success');
-                setTimeout(() => {
-                    window.location.href = '/voting-dashboard';
-                }, 2000);
+                // --- NEW: AJAX Call to the Flask backend for final session creation ---
+                const voterId = document.getElementById('voterId').value;
+                const loginBtn = document.getElementById('loginBtn');
+                
+                loginBtn.innerHTML = '<span class="loading-spinner"></span> Accessing...';
+                loginBtn.disabled = true;
+
+                // Send the POST request to the Flask backend
+                fetch('/voter-login' + window.location.search, { // Include ?next= parameter
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ voterId: voterId })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage(data.message + ' Redirecting...', 'loginSuccessMessage');
+                        // CRITICAL FIX: Use the 'redirect' URL returned by Flask
+                        setTimeout(() => {
+                            window.location.href = data.redirect; 
+                        }, 1000);
+                    } else {
+                        showMessage(data.error || 'Authentication failed on server.', 'error');
+                        loginBtn.innerHTML = 'Access Voting Dashboard';
+                        loginBtn.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    console.error('Login error:', error);
+                    showMessage('Network error during login.', 'error');
+                    loginBtn.innerHTML = 'Access Voting Dashboard';
+                    loginBtn.disabled = false;
+                });
+                // --- END NEW AJAX Logic ---
+
             } else {
                 showMessage('Please complete all authentication steps.', 'error');
             }
@@ -836,3 +867,5 @@
     </script>
 </body>
 </html>
+
+
