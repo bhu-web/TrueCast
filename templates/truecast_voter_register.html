@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRUECAST - Voter Registration</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .registration-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.1);
+            overflow: hidden;
+            max-width: 900px;
+            width: 100%;
+            position: relative;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .form-container {
+            padding: 3rem;
+        }
+
+        .progress-bar {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2rem;
+        }
+
+        .progress-step {
+            flex: 1;
+            text-align: center;
+            position: relative;
+            color: #bdc3c7;
+            font-size: 0.9rem;
+        }
+
+        .progress-step.active {
+            color: #3498db;
+            font-weight: bold;
+        }
+
+        .progress-step.completed {
+            color: #27ae60;
+        }
+
+        .progress-step::before {
+            content: '';
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: #ecf0f1;
+            border: 3px solid #bdc3c7;
+            display: block;
+            margin: 0 auto 0.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .progress-step.active::before {
+            background: #3498db;
+            border-color: #3498db;
+        }
+
+        .progress-step.completed::before {
+            background: #27ae60;
+            border-color: #27ae60;
+        }
+
+        .form-step {
+            display: none;
+            animation: fadeInSlide 0.5s ease;
+        }
+
+        .form-step.active {
+            display: block;
+        }
+
+        @keyframes fadeInSlide {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 1rem;
+            border: 2px solid #ecf0f1;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #3498db;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .biometric-section {
+            background: #f8f9fa;
+            padding: 2rem;
+            border-radius: 15px;
+            text-align: center;
+            margin: 1rem 0;
+            border: 2px dashed #bdc3c7;
+            transition: all 0.3s ease;
+        }
+
+        .biometric-section:hover {
+            border-color: #3498db;
+            background: #ecf8ff;
+        }
+
+        .upload-area {
+            position: relative;
+            cursor: pointer;
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            color: #3498db;
+            margin-bottom: 1rem;
+        }
+
+        .verification-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            font-weight: 600;
+        }
+
+        .status-pending {
+            color: #f39c12;
+        }
+
+        .status-verified {
+            color: #27ae60;
+        }
+
+        .status-failed {
+            color: #e74c3c;
+        }
+
+        .btn {
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #ecf0f1;
+            color: #2c3e50;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .form-navigation {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 2rem;
+        }
+
+        .security-info {
+            background: #e8f8f5;
+            border-left: 4px solid #27ae60;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 5px;
+        }
+
+        .security-info h4 {
+            color: #27ae60;
+            margin-bottom: 0.5rem;
+        }
+
+        .error-message {
+            background: #fdf2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            display: none;
+        }
+
+        .success-message {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #15803d;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            display: none;
+        }
+
+        .terms-section {
+            background: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 10px;
+            margin: 1rem 0;
+        }
+
+        .terms-content {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+            margin-top: 0.2rem;
+        }
+        
+        .ocr-results-display {
+            display: none;
+            margin-top: 2rem;
+            padding: 2rem;
+            background: #f8f9fa;
+            border-radius: 15px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+
+        .ocr-results-display h3 {
+            font-size: 1.5rem;
+            color: #2c3e50;
+            margin-bottom: 1rem;
+        }
+
+        .ocr-results-display pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background: white;
+            padding: 1rem;
+            border-radius: 10px;
+            border: 1px solid #e9ecef;
+            font-family: monospace;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .ocr-processing {
+            display: none;
+            text-align: center;
+            padding: 1rem;
+            background: #e3f2fd;
+            border-radius: 10px;
+            margin: 1rem 0;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Mobile Responsiveness */
+        @media (max-width: 768px) {
+            .registration-container {
+                margin: 10px;
+                border-radius: 15px;
+            }
+
+            .form-container {
+                padding: 2rem;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .progress-bar {
+                flex-wrap: wrap;
+                gap: 1rem;
+            }
+
+            .form-navigation {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .btn {
+                width: 100%;
+                text-align: center;
+            }
+        }
+
+        /* Accessibility Features */
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        .high-contrast {
+            filter: contrast(150%);
+        }
+
+        .large-text {
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <div class="registration-container">
+        <div class="header">
+            <h1>🗳️ TRUECAST</h1>
+            <p>Secure Voter Registration</p>
+        </div>
+
+        <div class="form-container">
+            <div class="progress-bar">
+                <div class="progress-step active" id="step1-progress">
+                    <span>Personal Info</span>
+                </div>
+                <div class="progress-step" id="step2-progress">
+                    <span>Identity Verification</span>
+                </div>
+                <div class="progress-step" id="step3-progress">
+                    <span>Biometric Setup</span>
+                </div>
+                <div class="progress-step" id="step4-progress">
+                    <span>Security & Terms</span>
+                </div>
+            </div>
+
+            <form id="voterRegistrationForm" method="POST" enctype="multipart/form-data" action="/voter-register">
+                <!-- Step 1: Personal Information -->
+                <div class="form-step active" id="step1">
+                    <h2>Personal Information</h2>
+                    <p style="color: #7f8c8d; margin-bottom: 2rem;">Please provide your basic information for voter registration.</p>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="firstName">First Name *</label>
+                            <input type="text" id="firstName" name="firstName" required aria-describedby="firstName-error">
+                        </div>
+                        <div class="form-group">
+                            <label for="lastName">Last Name *</label>
+                            <input type="text" id="lastName" name="lastName" required>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="dateOfBirth">Date of Birth *</label>
+                            <input type="date" id="dateOfBirth" name="dateOfBirth" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="gender">Gender</label>
+                            <select id="gender" name="gender">
+                                <option value="">Select Gender</option>
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                                <option value="other">Other</option>
+                                <option value="prefer-not-to-say">Prefer not to say</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="email">Email Address *</label>
+                        <input type="email" id="email" name="email" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="phone">Phone Number *</label>
+                        <input type="tel" id="phone" name="phone" required placeholder="+1 (555) 123-4567">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="address">Residential Address *</label>
+                        <textarea id="address" name="address" rows="3" required placeholder="Street address, City, State, ZIP Code"></textarea>
+                    </div>
+
+                    <div class="security-info">
+                        <h4>🔒 Data Security</h4>
+                        <p>Your personal information is encrypted and stored securely. We comply with all data protection regulations.</p>
+                    </div>
+                </div>
+
+                <!-- Step 2: Identity Verification -->
+                <div class="form-step" id="step2">
+                    <h2>Identity Verification</h2>
+                    <p style="color: #7f8c8d; margin-bottom: 2rem;">Upload official documents to verify your identity and eligibility.</p>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="idType">ID Document Type *</label>
+                            <select id="idType" name="idType" required>
+                                <option value="">Select ID Type</option>
+                                <option value="passport">Passport</option>
+                                <option value="drivers-license">Driver's License</option>
+                                <option value="national-id">National ID Card</option>
+                                <option value="voter-id">Voter ID Card</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="idNumber">ID Number *</label>
+                            <input type="text" id="idNumber" name="idNumber" required>
+                        </div>
+                    </div>
+
+                    <div class="biometric-section">
+                        <div class="upload-area" onclick="document.getElementById('idDocument').click()">
+                            <div class="upload-icon">📄</div>
+                            <h4>Upload ID Document</h4>
+                            <p>Click to upload front and back of your ID document</p>
+                            <input type="file" id="idDocument" name="idDocument" accept="image/*,.pdf" style="display: none;" multiple>
+                        </div>
+                        <div class="verification-status status-pending" id="doc-status">
+                            <span>⏳</span>
+                            <span>Awaiting document upload</span>
+                        </div>
+                    </div>
+
+                    <div class="ocr-processing" id="ocrProcessing">
+                        <div class="spinner"></div>
+                        <p>Processing document with OCR...</p>
+                    </div>
+
+                    {% if ocr_results %}
+                    <div class="ocr-results-display" id="ocrResultsDisplay" style="display:block;">
+                    <h3>Extracted Document Data</h3>
+                    {% for text in ocr_results %}
+                        <pre>{{ text }}</pre>
+                    {% endfor %}
+                    </div>
+                    {% endif %}
+
+
+                    <div class="form-group">
+                        <label for="voterRegion">Voting Region *</label>
+                        <select id="voterRegion" name="voterRegion" required>
+                            <option value="">Select Your Voting Region</option>
+                            <option value="north-district">North District</option>
+                            <option value="south-district">South District</option>
+                            <option value="east-district">East District</option>
+                            <option value="west-district">West District</option>
+                            <option value="central-district">Central District</option>
+                        </select>
+                    </div>
+
+                    <div class="security-info">
+                        <h4>🛡️ Document Security</h4>
+                        <p>Documents are processed using secure OCR technology and automatically deleted after verification.</p>
+                    </div>
+                </div>
+
+                <!-- Step 3: Biometric Setup -->
+                <div class="form-step" id="step3">
+                    <h2>Biometric Authentication Setup</h2>
+                    <p style="color: #7f8c8d; margin-bottom: 2rem;">Set up biometric authentication for secure voting access.</p>
+
+                    <div class="biometric-section">
+                        <div class="upload-area" id="faceCapture">
+                            <div class="upload-icon">📷</div>
+                            <h4>Facial Recognition Setup</h4>
+                            <p>Click to capture your facial biometric data</p>
+                            <button type="button" class="btn btn-primary" onclick="startFaceCapture()">Start Face Capture</button>
+                        </div>
+                        <div class="verification-status status-pending" id="face-status">
+                            <span>⏳</span>
+                            <span>Face capture not started</span>
+                        </div>
+                    </div>
+
+                    <div class="biometric-section">
+                        <div class="upload-area" id="fingerprintCapture">
+                            <div class="upload-icon">👆</div>
+                            <h4>Fingerprint Registration</h4>
+                            <p>Register your fingerprint for additional security</p>
+                            <button type="button" class="btn btn-primary" onclick="startFingerprintCapture()">Capture Fingerprint</button>
+                        </div>
+                        <div class="verification-status status-pending" id="fingerprint-status">
+                            <span>⏳</span>
+                            <span>Fingerprint not captured</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="backupPin">Backup PIN (6 digits) *</label>
+                        <input type="password" id="backupPin" name="backupPin" required pattern="[0-9]{6}" maxlength="6" placeholder="Enter 6-digit PIN">
+                        <small style="color: #7f8c8d;">This PIN will be used as backup authentication if biometric systems are unavailable.</small>
+                    </div>
+
+                    <div class="security-info">
+                        <h4>🔐 Biometric Privacy</h4>
+                        <p>Biometric data is converted to mathematical templates and cannot be reverse-engineered to recreate your original biometric features.</p>
+                    </div>
+                </div>
+
+                <!-- Step 4: Security & Terms -->
+                <div class="form-step" id="step4">
+                    <h2>Security Setup & Terms</h2>
+                    <p style="color: #7f8c8d; margin-bottom: 2rem;">Complete your security setup and accept terms of service.</p>
+
+                    <div class="form-group">
+                        <label for="securityQuestion">Security Question *</label>
+                        <select id="securityQuestion" name="securityQuestion" required>
+                            <option value="">Choose a security question</option>
+                            <option value="first-pet">What was the name of your first pet?</option>
+                            <option value="birth-city">In what city were you born?</option>
+                            <option value="mother-maiden">What is your mother's maiden name?</option>
+                            <option value="first-school">What was the name of your first school?</option>
+                            <option value="favorite-teacher">What was your favorite teacher's name?</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="securityAnswer">Security Answer *</label>
+                        <input type="text" id="securityAnswer" name="securityAnswer" required>
+                    </div>
+
+                    <div class="terms-section">
+                        <h4>Terms of Service & Privacy Policy</h4>
+                        <div class="terms-content">
+                            <h5>TRUECAST Voting System - Terms of Service</h5>
+                            <p><strong>1. Acceptance of Terms</strong><br>
+                            By registering with TRUECAST, you agree to these terms and conditions.</p>
+                            
+                            <p><strong>2. Eligibility</strong><br>
+                            You must be a eligible voter in your jurisdiction and provide accurate information during registration.</p>
+                            
+                            <p><strong>3. Data Security</strong><br>
+                            We employ blockchain technology and end-to-end encryption to protect your vote and personal information.</p>
+                            
+                            <p><strong>4. Voting Process</strong><br>
+                            Votes are recorded on an immutable blockchain ledger. Once cast, votes cannot be changed or deleted.</p>
+                            
+                            <p><strong>5. Privacy</strong><br>
+                            While votes are publicly verifiable, voter identity remains anonymous through cryptographic techniques.</p>
+                            
+                            <p><strong>6. System Integrity</strong><br>
+                            Any attempt to manipulate, hack, or interfere with the voting system is prohibited and may result in legal action.</p>
+                            
+                            <p><strong>7. Technical Requirements</strong><br>
+                            You are responsible for ensuring your device meets minimum security requirements for secure voting.</p>
+                        </div>
+
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="acceptTerms" name="acceptTerms" required>
+                            <label for="acceptTerms">I have read and accept the Terms of Service and Privacy Policy *</label>
+                        </div>
+                    </div>
+
+                    <div class="checkbox-group" style="margin-top: 1rem;">
+                        <input type="checkbox" id="consentBiometric" name="consentBiometric" required>
+                        <label for="consentBiometric">I consent to the collection and processing of my biometric data for authentication purposes *</label>
+                    </div>
+
+                    <div class="checkbox-group" style="margin-top: 1rem;">
+                        <input type="checkbox" id="notifications" name="notifications">
+                        <label for="notifications">I would like to receive notifications about upcoming elections and voting reminders</label>
+                    </div>
+
+                    <div class="security-info">
+                        <h4>🔒 Final Security Check</h4>
+                        <p>After registration, you will receive an OTP via email and SMS to verify your contact information.</p>
+                    </div>
+                </div>
+
+                <div class="error-message" id="errorMessage"></div>
+                <div class="success-message" id="successMessage"></div>
+
+                <div class="form-navigation">
+                    <button type="button" class="btn btn-secondary" id="prevBtn" onclick="prevStep()">Previous</button>
+                    <button type="button" class="btn btn-primary" id="nextBtn" onclick="nextStep()">Next</button>
+                    <button type="submit" class="btn btn-success" id="submitBtn" style="display: none;">Complete Registration</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let currentStep = 1;
+        const totalSteps = 4;
+
+        // Form validation patterns
+        const validators = {
+            email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+            phone: /^[\+]?[1-9][\d]{0,15}$/,
+            pin: /^[0-9]{6}$/
+        };
+
+        function updateProgressBar() {
+            for (let i = 1; i <= totalSteps; i++) {
+                const step = document.getElementById(`step${i}-progress`);
+                const stepDiv = document.getElementById(`step${i}`);
+                
+                if (i < currentStep) {
+                    step.className = 'progress-step completed';
+                    stepDiv.classList.remove('active');
+                } else if (i === currentStep) {
+                    step.className = 'progress-step active';
+                    stepDiv.classList.add('active');
+                } else {
+                    step.className = 'progress-step';
+                    stepDiv.classList.remove('active');
+                }
+            }
+
+            // Update navigation buttons
+            document.getElementById('prevBtn').style.display = currentStep === 1 ? 'none' : 'inline-block';
+            document.getElementById('nextBtn').style.display = currentStep === totalSteps ? 'none' : 'inline-block';
+            document.getElementById('submitBtn').style.display = currentStep === totalSteps ? 'inline-block' : 'none';
+        }
+
+        function validateStep(step) {
+            const stepDiv = document.getElementById(`step${step}`);
+            const requiredInputs = stepDiv.querySelectorAll('input[required], select[required]');
+            let isValid = true;
+            let errorMessage = '';
+
+            requiredInputs.forEach(input => {
+                if (!input.value.trim()) {
+                    isValid = false;
+                    input.style.borderColor = '#e74c3c';
+                    errorMessage = 'Please fill in all required fields.';
+                } else {
+                    input.style.borderColor = '#27ae60';
+                }
+
+                // Specific validations
+                if (input.type === 'email' && input.value && !validators.email.test(input.value)) {
+                    isValid = false;
+                    input.style.borderColor = '#e74c3c';
+                    errorMessage = 'Please enter a valid email address.';
+                }
+
+                if (input.type === 'tel' && input.value && !validators.phone.test(input.value.replace(/\D/g, ''))) {
+                    isValid = false;
+                    input.style.borderColor = '#e74c3c';
+                    errorMessage = 'Please enter a valid phone number.';
+                }
+
+                if (input.id === 'backupPin' && input.value && !validators.pin.test(input.value)) {
+                    isValid = false;
+                    input.style.borderColor = '#e74c3c';
+                    errorMessage = 'PIN must be exactly 6 digits.';
+                }
+            });
+
+            // Check biometric requirements for step 3
+            if (step === 3) {
+                const faceStatus = document.getElementById('face-status').textContent.includes('completed');
+                const fingerprintStatus = document.getElementById('fingerprint-status').textContent.includes('completed');
+                
+                if (!faceStatus && !fingerprintStatus) {
+                    isValid = false;
+                    errorMessage = 'Please complete at least one biometric authentication setup.';
+                }
+            }
+
+            // Check terms acceptance for step 4
+            if (step === 4) {
+                const acceptTerms = document.getElementById('acceptTerms').checked;
+                const consentBiometric = document.getElementById('consentBiometric').checked;
+                
+                if (!acceptTerms || !consentBiometric) {
+                    isValid = false;
+                    errorMessage = 'Please accept the required terms and consents.';
+                }
+            }
+
+            showMessage(errorMessage, 'error');
+            return isValid;
+        }
+
+        function nextStep() {
+            if (validateStep(currentStep)) {
+                if (currentStep < totalSteps) {
+                    currentStep++;
+                    updateProgressBar();
+                    hideMessage();
+                }
+            }
+        }
+
+        function prevStep() {
+            if (currentStep > 1) {
+                currentStep--;
+                updateProgressBar();
+                hideMessage();
+            }
+        }
+
+        function showMessage(message, type) {
+            const errorDiv = document.getElementById('errorMessage');
+            const successDiv = document.getElementById('successMessage');
+            
+            if (type === 'error' && message) {
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+                successDiv.style.display = 'none';
+            } else if (type === 'success' && message) {
+                successDiv.textContent = message;
+                successDiv.style.display = 'block';
+                errorDiv.style.display = 'none';
+            }
+        }
+
+        function hideMessage() {
+            document.getElementById('errorMessage').style.display = 'none';
+            document.getElementById('successMessage').style.display = 'none';
+        }
+
+        // Biometric simulation functions
+        function startFaceCapture() {
+            const statusDiv = document.getElementById('face-status');
+            statusDiv.innerHTML = '<span>⏳</span><span>Capturing facial data...</span>';
+            statusDiv.className = 'verification-status status-pending';
+            
+            setTimeout(() => {
+                statusDiv.innerHTML = '<span>✅</span><span>Face capture completed successfully</span>';
+                statusDiv.className = 'verification-status status-verified';
+            }, 3000);
+        }
+
+        function startFingerprintCapture() {
+            const statusDiv = document.getElementById('fingerprint-status');
+            statusDiv.innerHTML = '<span>⏳</span><span>Scanning fingerprint...</span>';
+            statusDiv.className = 'verification-status status-pending';
+            
+            setTimeout(() => {
+                statusDiv.innerHTML = '<span>✅</span><span>Fingerprint registered successfully</span>';
+                statusDiv.className = 'verification-status status-verified';
+            }, 2500);
+        }
+
+        // Document upload handler
+        document.getElementById('idDocument').addEventListener('change', function(e) {
+            const statusDiv = document.getElementById('doc-status');
+            const ocrProcessing = document.getElementById('ocrProcessing');
+            
+            if (e.target.files.length > 0) {
+                statusDiv.innerHTML = '<span>⏳</span><span>Processing documents...</span>';
+                statusDiv.className = 'verification-status status-pending';
+                
+                // Show OCR processing
+                ocrProcessing.style.display = 'block';
+                
+                const formData = new FormData();
+        for (let i = 0; i < e.target.files.length; i++) {
+            formData.append('idDocument', e.target.files[i]);
+        }
+
+        fetch('/api/ocr_process', { method: 'POST', body: formData })
+            .then(response => {
+                if (response.redirected) {
+                    window.location.href = response.url; // follow redirect
+                } else {
+                    return response.json().then(data => {
+                        throw new Error(data.error || 'OCR failed');
+                    });
+                }
+            })
+            .catch(err => {
+                statusDiv.innerHTML = '<span>❌</span><span>OCR failed</span>';
+                statusDiv.className = 'verification-status status-failed';
+                ocrProcessing.style.display = 'none';
+                alert(err.message);
+            });
+    }
+});
+
+        function displayOcrResults(results) {
+            const ocrResultsDisplay = document.getElementById('ocrResultsDisplay');
+            const ocrResultsContent = document.getElementById('ocrResultsContent');
+            
+            ocrResultsContent.innerHTML = '';
+            
+            results.forEach((result, index) => {
+                const resultDiv = document.createElement('div');
+                resultDiv.style.marginBottom = '1.5rem';
+                resultDiv.innerHTML = `
+                    <h4 style="color: #3498db; margin-bottom: 0.5rem;">${result.filename}</h4>
+                    <pre>${result.content}</pre>
+                `;
+                ocrResultsContent.appendChild(resultDiv);
+            });
+            
+            ocrResultsDisplay.style.display = 'block';
+        }
+
+        // Form submission
+        document.getElementById('voterRegistrationForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            if (validateStep(4)) {
+                // In a real application, this would submit to the server
+                // For demo purposes, we'll simulate a successful submission
+                showMessage('Registration submitted successfully! Please check your email and phone for verification codes.', 'success');
+                
+                setTimeout(() => {
+                    alert('Registration complete! You will be redirected to the login page.');
+                    window.location.href = '/voter-login';
+                }, 3000);
+            }
+        });
+
+        // Auto-format phone number
+        document.getElementById('phone').addEventListener('input', function(e) {
+            let value = e.target.value.replace(/\D/g, '');
+            if (value.length >= 10) {
+                value = value.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3');
+            }
+            e.target.value = value;
+        });
+
+        // Initialize
+        updateProgressBar();
+
+        // Accessibility features
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.target.matches('textarea')) {
+                e.preventDefault();
+                if (currentStep < totalSteps) {
+                    nextStep();
+                } else {
+                    document.getElementById('submitBtn').click();
+                }
+            }
+        });
+    </script>
+</body>
+</html>

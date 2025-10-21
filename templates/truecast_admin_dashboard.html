@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRUECAST - Admin Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+            color: white;
+            padding: 1rem 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+
+        .admin-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .admin-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+
+        .nav-tabs {
+            display: flex;
+            list-style: none;
+            gap: 0.5rem;
+            background: rgba(255,255,255,0.1);
+            border-radius: 25px;
+            padding: 0.5rem;
+        }
+
+        .nav-tab {
+            padding: 0.5rem 1rem;
+            color: white;
+            text-decoration: none;
+            border-radius: 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .nav-tab.active {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .nav-tab:hover {
+            background: rgba(255,255,255,0.15);
+        }
+
+        /* Main Container */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem 20px;
+        }
+
+        /* Dashboard Overview */
+        .stats-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(135deg, #3498db 0%, #27ae60 100%);
+        }
+
+        .stat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .stat-icon {
+            font-size: 2rem;
+            opacity: 0.7;
+        }
+
+        .stat-trend {
+            font-size: 0.8rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+
+        .stat-trend.up {
+            background: #d1fae5;
+            color: #059669;
+        }
+
+        .stat-trend.down {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Real-time Monitoring */
+        .monitoring-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .chart-title {
+            font-size: 1.3rem;
+            color: #2c3e50;
+        }
+
+        .chart-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .chart-btn {
+            padding: 0.3rem 0.8rem;
+            border: 1px solid #e9ecef;
+            background: white;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.8rem;
+        }
+
+        .chart-btn.active {
+            background: #3498db;
+            color: white;
+            border-color: #3498db;
+        }
+
+        .chart-placeholder {
+            height: 300px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #7f8c8d;
+            font-size: 1.1rem;
+        }
+
+        .activity-feed {
+            background: white;
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .activity-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            padding: 1rem;
+            border-bottom: 1px solid #f1f3f4;
+            transition: all 0.3s ease;
+        }
+
+        .activity-item:hover {
+            background: #f8f9fa;
+        }
+
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+
+        .activity-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+
+        .activity-icon.vote {
+            background: #e7f3ff;
+            color: #3498db;
+        }
+
+        .activity-icon.registration {
+            background: #f0fdf4;
+            color: #27ae60;
+        }
+
+        .activity-icon.alert {
+            background: #fef2f2;
+            color: #ef4444;
+        }
+
+        .activity-content {
+            flex: 1;
+        }
+
+        .activity-title {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 0.3rem;
+        }
+
+        .activity-description {
+            color: #7f8c8d;
+            font-size: 0.9rem;
+            margin-bottom: 0.3rem;
+        }
+
+        .activity-time {
+            color: #bdc3c7;
+            font-size: 0.8rem;
+        }
+
+        /* Voter Management */
+        .management-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .search-filter-container {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .search-input {
+            padding: 0.75rem;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            width: 300px;
+        }
+
+        .filter-select {
+            padding: 0.75rem;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            background: white;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .data-table {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .table th {
+            background: #f8f9fa;
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: #2c3e50;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .table td {
+            padding: 1rem;
+            border-bottom: 1px solid #f1f3f4;
+            color: #2c3e50;
+        }
+
+        .table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .status-badge {
+            padding: 0.3rem 0.8rem;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .status-active {
+            background: #d1fae5;
+            color: #059669;
+        }
+
+        .status-pending {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .status-inactive {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .action-btn {
+            padding: 0.3rem 0.6rem;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.3s ease;
+        }
+
+        .action-btn.view {
+            background: #e7f3ff;
+            color: #3498db;
+        }
+
+        .action-btn.edit {
+            background: #f0fdf4;
+            color: #27ae60;
+        }
+
+        .action-btn.delete {
+            background: #fef2f2;
+            color: #ef4444;
+        }
+
+        /* Election Management */
+        .election-card {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            margin-bottom: 1.5rem;
+        }
+
+        .election-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .election-title {
+            font-size: 1.5rem;
+            color: #2c3e50;
+        }
+
+        .election-status {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+        }
+
+        .election-active {
+            background: #d1fae5;
+            color: #059669;
+        }
+
+        .election-upcoming {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .election-ended {
+            background: #e5e7eb;
+            color: #6b7280;
+        }
+
+        .election-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+
+        .election-detail {
+            text-align: center;
+        }
+
+        .election-detail-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #3498db;
+            margin-bottom: 0.3rem;
+        }
+
+        .election-detail-label {
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+
+        .election-actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        /* Security Alerts */
+        .alert-container {
+            margin-bottom: 2rem;
+        }
+
+        .alert {
+            padding: 1rem;
+            border-radius: 10px;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .alert-warning {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            color: #92400e;
+        }
+
+        .alert-danger {
+            background: #fee2e2;
+            border: 1px solid #ef4444;
+            color: #dc2626;
+        }
+
+        .alert-success {
+            background: #d1fae5;
+            border: 1px solid #10b981;
+            color: #059669;
+        }
+
+        .alert-icon {
+            font-size: 1.5rem;
+        }
+
+        .alert-content {
+            flex: 1;
+        }
+
+        .alert-title {
+            font-weight: 600;
+            margin-bottom: 0.3rem;
+        }
+
+        .alert-dismiss {
+            background: none;
+            border: none;
+            font-size: 1.2rem;
+            cursor: pointer;
+            opacity: 0.7;
+        }
+
+        .alert-dismiss:hover {
+            opacity: 1;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .nav-tabs {
+                flex-wrap: wrap;
+            }
+
+            .stats-overview {
+                grid-template-columns: 1fr;
+            }
+
+            .monitoring-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .search-filter-container {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .search-input {
+                width: 100%;
+            }
+
+            .election-details {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .election-actions {
+                flex-direction: column;
+            }
+        }
+
+        /* Loading States */
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div class="logo">🗳️ TRUECAST Admin</div>
+            <nav>
+                <ul class="nav-tabs">
+                    <li><a href="#" class="nav-tab active" onclick="showTab('overview')">Overview</a></li>
+                    <li><a href="#" class="nav-tab" onclick="showTab('monitoring')">Live Monitoring</a></li>
+                    <li><a href="#" class="nav-tab" onclick="showTab('voters')">Voter Management</a></li>
+                    <li><a href="#" class="nav-tab" onclick="showTab('elections')">Elections</a></li>
+                    <li><a href="#" class="nav-tab" onclick="showTab('security')">Security</a></li>
+                </ul>
+            </nav>
+            <div class="admin-info">
+                <div class="admin-avatar">👤</div>
+                <div>
+                    <div>Admin Panel</div>
+                    <small>Electoral Commission</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Overview Tab -->
+        <div class="tab-content active" id="overview">
+            <div class="stats-overview">
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">👥</span>
+                        <span class="stat-trend up">+12.3%</span>
+                    </div>
+                    <div class="stat-value">45,821</div>
+                    <div class="stat-label">Registered Voters</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">🗳️</span>
+                        <span class="stat-trend up">+8.7%</span>
+                    </div>
+                    <div class="stat-value">12,453</div>
+                    <div class="stat-label">Votes Cast Today</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">⛓️</span>
+                        <span class="stat-trend up">+0.2%</span>
+                    </div>
+                    <div class="stat-value">99.8%</div>
+                    <div class="stat-label">Blockchain Integrity</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">🔒</span>
+                        <span class="stat-trend down">-2</span>
+                    </div>
+                    <div class="stat-value">3</div>
+                    <div class="stat-label">Security Alerts</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">📊</span>
+                        <span class="stat-trend up">+15.2%</span>
+                    </div>
+                    <div class="stat-value">87.2%</div>
+                    <div class="stat-label">Turnout Rate</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">⚡</span>
+                        <span class="stat-trend up">99.9%</span>
+                    </div>
+                    <div class="stat-value">1.2ms</div>
+                    <div class="stat-label">Response Time</div>
+                </div>
+            </div>
+
+            <div class="monitoring-grid">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <h3 class="chart-title">Voting Activity</h3>
+                        <div class="chart-controls">
+                            <button class="chart-btn active">24h</button>
+                            <button class="chart-btn">7d</button>
+                            <button class="chart-btn">30d</button>
+                        </div>
+                    </div>
+                    <div class="chart-placeholder">
+                        📊 Real-time voting activity chart would be displayed here
+                    </div>
+                </div>
+
+                <div class="activity-feed">
+                    <h3 style="color: #2c3e50; margin-bottom: 1rem;">Recent Activity</h3>
+                    <div class="activity-item">
+                        <div class="activity-icon vote">🗳️</div>
+                        <div class="activity-content">
+                            <div class="activity-title">Vote Cast</div>
+                            <div class="activity-description">Voter VS2025001234 cast ballot for General Election</div>
+                            <div class="activity-time">2 minutes ago</div>
+                        </div>
+                    </div>
+                    
+                    <div class="activity-item">
+                        <div class="activity-icon registration">👤</div>
+                        <div class="activity-content">
+                            <div class="activity-title">New Registration</div>
+                            <div class="activity-description">Voter registration completed with biometric verification</div>
+                            <div class="activity-time">5 minutes ago</div>
+                        </div>
+                    </div>
+                    
+                    <div class="activity-item">
+                        <div class="activity-icon alert">⚠️</div>
+                        <div class="activity-content">
+                            <div class="alert-title">Security Alert</div>
+                            <div class="alert-description">Multiple failed login attempts detected</div>
+                            <div class="alert-time">12 minutes ago</div>
+                        </div>
+                    </div>
+                    
+                    <div class="activity-item">
+                        <div class="activity-icon vote">🗳️</div>
+                        <div class="activity-content">
+                            <div class="activity-title">Vote Verified</div>
+                            <div class="activity-description">Blockchain verification completed for transaction 0x2f5a...</div>
+                            <div class="activity-time">18 minutes ago</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Monitoring Tab -->
+        <div class="tab-content" id="monitoring">
+            <div class="alert-container">
+                <div class="alert alert-success">
+                    <span class="alert-icon">✅</span>
+                    <div class="alert-content">
+                        <div class="alert-title">System Status: Operational</div>
+                        <div>All voting systems are functioning normally</div>
+                    </div>
+                    <button class="alert-dismiss">×</button>
+                </div>
+            </div>
+
+            <div class="stats-overview">
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">📈</span>
+                    </div>
+                    <div class="stat-value">2,847</div>
+                    <div class="stat-label">Votes per Hour</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">🌐</span>
+                    </div>
+                    <div class="stat-value">156</div>
+                    <div class="stat-label">Active Sessions</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">⛓️</span>
+                    </div>
+                    <div class="stat-value">12,847</div>
+                    <div class="stat-label">Latest Block</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">🔄</span>
+                    </div>
+                    <div class="stat-value">0.8s</div>
+                    <div class="stat-label">Block Time</div>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-header">
+                    <h3 class="chart-title">Real-Time System Metrics</h3>
+                </div>
+                <div class="chart-placeholder">
+                    🔒 Security monitoring and threat detection dashboard
+                </div>
+            </div>
+        </div>
+
+        <!-- Voter Management Tab -->
+        <div class="tab-content" id="voters">
+            <div class="management-header">
+                <h2>Voter Management</h2>
+                <div class="search-filter-container">
+                    <input type="text" class="search-input" placeholder="Search voters...">
+                    <select class="filter-select">
+                        <option>All Status</option>
+                        <option>Active</option>
+                        <option>Pending</option>
+                        <option>Inactive</option>
+                    </select>
+                    <button class="btn btn-primary">Export Data</button>
+                </div>
+            </div>
+
+            <div class="data-table">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Voter ID</th>
+                            <th>Name</th>
+                            <th>Registration Date</th>
+                            <th>Status</th>
+                            <th>Votes Cast</th>
+                            <th>Last Activity</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>VS2025001234</td>
+                            <td>John Smith</td>
+                            <td>2025-01-15</td>
+                            <td><span class="status-badge status-active">Active</span></td>
+                            <td>3</td>
+                            <td>2025-03-15 14:32</td>
+                            <td>
+                                <div class="action-buttons">
+                                    <button class="action-btn view">View</button>
+                                    <button class="action-btn edit">Edit</button>
+                                    <button class="action-btn delete">Disable</button>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>VS2025001235</td>
+                            <td>Sarah Johnson</td>
+                            <td>2025-01-16</td>
+                            <td><span class="status-badge status-pending">Pending</span></td>
+                            <td>0</td>
+                            <td>2025-03-14 09:15</td>
+                            <td>
+                                <div class="action-buttons">
+                                    <button class="action-btn view">View</button>
+                                    <button class="action-btn edit">Approve</button>
+                                    <button class="action-btn delete">Reject</button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Elections Tab -->
+        <div class="tab-content" id="elections">
+            <div class="management-header">
+                <h2>Election Management</h2>
+                <a href="truecast_create_elections.html" class="btn btn-success">Create New Election</a>
+            </div>
+
+            <!-- New section for results approval -->
+            <div class="election-card">
+                <div class="election-header">
+                    <h3 class="election-title">Approve and Publish Results</h3>
+                </div>
+                <p>Once the voting period is over and you have verified the integrity of the data, click the button below to approve and publish the final results to all voters.</p>
+                <button id="approve-results-btn" class="btn btn-success">Approve and Publish Results</button>
+                <div id="approval-message" class="alert-success" style="display: none; margin-top: 1rem; padding: 1rem; border-radius: 8px;"></div>
+            </div>
+
+            <div class="election-card">
+                <div class="election-header">
+                    <h3 class="election-title">2025 General Election</h3>
+                    <span class="election-status election-active">Active</span>
+                </div>
+                <div class="election-details">
+                    <div class="election-detail">
+                        <div class="election-detail-value">12,453</div>
+                        <div class="election-detail-label">Total Votes</div>
+                    </div>
+                    <div class="election-detail">
+                        <div class="election-detail-value">87.2%</div>
+                        <div class="election-detail-label">Turnout Rate</div>
+                    </div>
+                    <div class="election-detail">
+                        <div class="election-detail-value">2h 15m</div>
+                        <div class="election-detail-label">Time Remaining</div>
+                    </div>
+                    <div class="election-detail">
+                        <div class="election-detail-value">45,821</div>
+                        <div class="election-detail-label">Eligible Voters</div>
+                    </div>
+                </div>
+                <div class="election-actions">
+                    <a href="truecast_results.html" class="btn btn-primary">View Results</a>
+                    <button class="btn btn-primary">Manage Candidates</button>
+                    <button class="btn btn-danger">End Election</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security Tab -->
+        <div class="tab-content" id="security">
+            <div class="alert-container">
+                <div class="alert alert-warning">
+                    <span class="alert-icon">⚠️</span>
+                    <div class="alert-content">
+                        <div class="alert-title">Security Notice</div>
+                        <div>3 failed authentication attempts detected from IP 192.168.1.100</div>
+                    </div>
+                    <button class="alert-dismiss">×</button>
+                </div>
+            </div>
+
+            <div class="stats-overview">
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">🔒</span>
+                    </div>
+                    <div class="stat-value">99.98%</div>
+                    <div class="stat-label">Security Score</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">🛡️</span>
+                    </div>
+                    <div class="stat-value">0</div>
+                    <div class="stat-label">Active Threats</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">🔍</span>
+                    </div>
+                    <div class="stat-value">156</div>
+                    <div class="stat-label">Audit Logs Today</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-icon">⚡</span>
+                    </div>
+                    <div class="stat-value">24/7</div>
+                    <div class="stat-label">Monitoring</div>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-header">
+                    <h3 class="chart-title">Security Events</h3>
+                </div>
+                <div class="chart-placeholder">
+                    🔒 Security monitoring and threat detection dashboard
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Script to include jQuery and the new functionality -->
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script>
+        function showTab(tabName) {
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Remove active class from all nav tabs
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected tab content
+            document.getElementById(tabName).classList.add('active');
+            
+            // Add active class to clicked nav tab
+            event.target.classList.add('active');
+        }
+
+        // Dismiss alerts
+        document.querySelectorAll('.alert-dismiss').forEach(button => {
+            button.addEventListener('click', function() {
+                this.parentElement.style.display = 'none';
+            });
+        });
+
+        // Simulate real-time updates
+        function updateStats() {
+            const statsElements = document.querySelectorAll('.stat-value');
+            statsElements.forEach(element => {
+                if (element.textContent.includes(',')) {
+                    let currentValue = parseInt(element.textContent.replace(/,/g, ''));
+                    let newValue = currentValue + Math.floor(Math.random() * 10);
+                    element.textContent = newValue.toLocaleString();
+                }
+            });
+        }
+
+        // Update stats every 30 seconds
+        setInterval(updateStats, 30000);
+
+        // Chart controls
+        document.querySelectorAll('.chart-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                this.parentElement.querySelectorAll('.chart-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        // Search functionality
+        document.querySelector('.search-input').addEventListener('input', function() {
+            // Simulate search functionality
+            console.log('Searching for:', this.value);
+        });
+        
+        // New functionality to approve results via AJAX
+        document.getElementById('approve-results-btn').addEventListener('click', function() {
+            const approveBtn = this;
+            const approvalMessageDiv = document.getElementById('approval-message');
+            
+            // Show a loading state
+            approveBtn.innerHTML = '<span class="loading-spinner"></span> Approving...';
+            approveBtn.disabled = true;
+
+            fetch('/api/admin/approve-results', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                // Body is empty for this simple approval
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    approvalMessageDiv.textContent = 'Results have been approved and published!';
+                    approvalMessageDiv.style.display = 'block';
+                    approvalMessageDiv.classList.add('alert-success');
+                    approvalMessageDiv.classList.remove('alert-danger');
+                    // Change the button text back to its original state but disabled
+                    approveBtn.textContent = 'Results Approved';
+                } else {
+                    approvalMessageDiv.textContent = 'Error: ' + data.error;
+                    approvalMessageDiv.style.display = 'block';
+                    approvalMessageDiv.classList.add('alert-danger');
+                    approvalMessageDiv.classList.remove('alert-success');
+                    // Re-enable the button to allow retries
+                    approveBtn.textContent = 'Approve and Publish Results';
+                    approveBtn.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                approvalMessageDiv.textContent = 'An error occurred. Please check the console.';
+                approvalMessageDiv.style.display = 'block';
+                approvalMessageDiv.classList.add('alert-danger');
+                approvalMessageDiv.classList.remove('alert-success');
+                approveBtn.textContent = 'Approve and Publish Results';
+                approveBtn.disabled = false;
+            });
+        });
+    </script>
+</body>
+</html>
