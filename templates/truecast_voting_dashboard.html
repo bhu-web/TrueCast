@@ -901,6 +901,15 @@
 
       // Server-provided state exposed as JS-friendly variables
       const SERVER_HAS_VOTED = {{ has_voted | tojson }};
+
+      // --- SESSION CLEANUP ---
+      // If the user has NOT voted, we must clear any leftover local storage from a previous user.
+      // This ensures a clean slate for a new voting session.
+      if (!SERVER_HAS_VOTED) {
+          localStorage.removeItem('truecast_votes');
+      }
+      // --- END SESSION CLEANUP ---
+
       try {
           const serverVotes = JSON.parse(`{{ previous_votes | default({}) | tojson | safe }}`);
           if (SERVER_HAS_VOTED && Object.keys(serverVotes).length > 0) {
@@ -952,7 +961,17 @@
       }
 
       function updateProgress() {
-          const completed = Object.values(votes).filter(vote => vote !== null).length;
+          // Define the specific races to count for progress.
+          const races = ['mayor', 'council', 'proposition'];
+          let completed = 0;
+          
+          // Count only the defined races that have a selection.
+          races.forEach(race => {
+              if (votes[race] !== null && votes[race] !== undefined) {
+                  completed++;
+              }
+          });
+
           const total = 3;
           const percentage = (completed / total) * 100;
 
@@ -1109,6 +1128,9 @@
                   } catch (e) {
                       console.log('Could not load saved votes from local storage.');
                   }
+              } else {
+                  // If no saved votes, ensure the state is clean for a new user.
+                  votes = { mayor: null, council: null, proposition: null };
               }
           }
 
