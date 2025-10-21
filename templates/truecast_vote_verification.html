@@ -108,9 +108,16 @@
             color: white;
         }
 
-        .btn:hover {
+        .btn:hover:not([disabled]) {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn[disabled] {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
         .search-examples {
@@ -409,10 +416,10 @@
                     <p style="color: #7f8c8d; margin-bottom: 1rem;">Enter your transaction hash or voter ID to verify your vote was recorded correctly.</p>
                     
                     <div class="search-form">
-                        <input type="text" id="searchInput" class="search-input" placeholder="Enter transaction hash or voter ID...">
-                        <button class="btn btn-primary" onclick="verifyVote()">
+                        <input type="text" id="searchInput" class="search-input" placeholder="Enter transaction hash or voter ID..." aria-label="Transaction hash or Voter ID">
+                        <button id="searchBtn" class="btn btn-primary" onclick="verifyVote()" aria-label="Verify Vote">
                             <span id="searchBtnText">Verify Vote</span>
-                            <span id="searchSpinner" style="display: none;" class="loading-spinner"></span>
+                            <span id="searchSpinner" style="display: none;" class="loading-spinner" aria-hidden="true"></span>
                         </button>
                     </div>
 
@@ -423,7 +430,7 @@
                     </div>
                 </div>
 
-                <div class="verification-result" id="verificationResult">
+                <div class="verification-result" id="verificationResult" role="status" aria-live="polite">
                     <div class="result-header">
                         <div class="result-icon" id="resultIcon">✅</div>
                         <div class="result-details">
@@ -590,68 +597,77 @@
     </div>
 
     <script>
-        // Sample data for demonstration
-        const sampleVotes = {
-            '0x2f5a7b8c9d1e3f4a5b6c7d8e9f1a2b3c4d5e6f7a8b9c': {
-                voterId: 'VS2025001234',
-                election: '2025 General Election',
-                timestamp: '2025-03-15 14:32:18 UTC',
-                status: 'Confirmed',
-                blockNumber: 12847,
-                confirmations: 256,
-                gasUsed: 21000,
-                networkFee: 0.002,
-                blockHash: '0x8e3c9d2f5a7b1c4e6f9a2b5c8d1e4f7a9b2c5e8d1f4a7b'
-            },
-            'VS2025001234': {
-                transactionHash: '0x2f5a7b8c9d1e3f4a5b6c7d8e9f1a2b3c4d5e6f7a8b9c',
-                election: '2025 General Election',
-                timestamp: '2025-03-15 14:32:18 UTC',
-                status: 'Confirmed',
-                blockNumber: 12847,
-                confirmations: 256,
-                gasUsed: 21000,
-                networkFee: 0.002,
-                blockHash: '0x8e3c9d2f5a7b1c4e6f9a2b5c8d1e4f7a9b2c5e8d1f4a7b'
-            }
-        };
+        // Utility to safely format numbers
+        function formatNumber(value) {
+            if (value === null || value === undefined) return '—';
+            const num = Number(value);
+            return isNaN(num) ? String(value) : num.toLocaleString();
+        }
 
-        function verifyVote() {
+        // Utility to safely format timestamps
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return '—';
+            const date = new Date(timestamp);
+            if (isNaN(date)) return String(timestamp); // Return original if invalid
+            return date.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+        }
+
+        async function verifyVote() {
             const searchInput = document.getElementById('searchInput');
             const query = searchInput.value.trim();
             
             if (!query) {
-                alert('Please enter a transaction hash or voter ID');
+                // Show inline error instead of alert
+                showVerificationResult(false, { error: 'Please enter a transaction hash or voter ID.' });
                 return;
             }
 
-            // Show loading state
+            const searchBtn = document.getElementById('searchBtn');
             const btnText = document.getElementById('searchBtnText');
             const spinner = document.getElementById('searchSpinner');
+
+            // Disable button and show spinner
+            searchBtn.disabled = true;
             btnText.style.display = 'none';
             spinner.style.display = 'inline-block';
 
-            // Simulate API call
-            setTimeout(() => {
-                const result = sampleVotes[query];
-                
-                if (result) {
-                    showVerificationResult(query, result, true);
-                } else {
-                    showVerificationResult(query, null, false);
+            // Hide previous result
+            document.getElementById('verificationResult').style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/verify_vote', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ query: query })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Server error: ${response.status} ${errorText}`);
                 }
 
-                // Reset button
+                const data = await response.json();
+                showVerificationResult(data.success, data);
+
+            } catch (error) {
+                console.error('Verification error:', error);
+                showVerificationResult(false, { error: 'Network error or invalid response. Please try again.' });
+            } finally {
+                // Re-enable button and hide spinner
+                searchBtn.disabled = false;
                 btnText.style.display = 'inline';
                 spinner.style.display = 'none';
-            }, 2000);
+            }
         }
 
-        function showVerificationResult(query, data, success) {
+        function showVerificationResult(success, payload) {
             const resultDiv = document.getElementById('verificationResult');
             const resultIcon = document.getElementById('resultIcon');
             const resultTitle = document.getElementById('resultTitle');
             const resultSubtitle = document.getElementById('resultSubtitle');
+            const data = payload.data || {};
 
             if (success) {
                 resultDiv.className = 'verification-result';
@@ -659,30 +675,29 @@
                 resultTitle.textContent = 'Vote Successfully Verified';
                 resultSubtitle.textContent = 'Your vote has been confirmed on the blockchain';
 
-                // Update details
-                if (query.startsWith('0x')) {
-                    document.getElementById('voterIdDisplay').textContent = data.voterId;
-                    document.getElementById('transactionHashDisplay').textContent = query;
-                } else {
-                    document.getElementById('voterIdDisplay').textContent = query;
-                    document.getElementById('transactionHashDisplay').textContent = data.transactionHash;
-                }
+                // Safely update details with actual data
+                document.getElementById('voterIdDisplay').textContent = data.voterId || '—';
+                document.getElementById('transactionHashDisplay').textContent = data.transactionHash || '—';
+                document.getElementById('electionDisplay').textContent = data.election || '—';
+                document.getElementById('voteTimeDisplay').textContent = formatTimestamp(data.timestamp);
+                document.getElementById('voteStatusDisplay').textContent = data.status || '—';
+                document.getElementById('blockNumber').textContent = formatNumber(data.blockNumber);
+                document.getElementById('confirmations').textContent = formatNumber(data.confirmations);
+                document.getElementById('gasUsed').textContent = formatNumber(data.gasUsed);
+                document.getElementById('networkFee').textContent = data.networkFee !== undefined ? data.networkFee : '—';
+                document.getElementById('blockHashDisplay').textContent = data.blockHash || '—';
 
-                document.getElementById('electionDisplay').textContent = data.election;
-                document.getElementById('voteTimeDisplay').textContent = data.timestamp;
-                document.getElementById('voteStatusDisplay').textContent = data.status;
-                document.getElementById('blockNumber').textContent = data.blockNumber.toLocaleString();
-                document.getElementById('confirmations').textContent = data.confirmations;
-                document.getElementById('gasUsed').textContent = data.gasUsed.toLocaleString();
-                document.getElementById('networkFee').textContent = data.networkFee;
-                document.getElementById('blockHashDisplay').textContent = data.blockHash;
+                document.getElementById('voteDetails').style.display = 'block';
+                document.querySelector('.blockchain-info').style.display = 'block';
+                document.querySelector('.qr-code').style.display = 'block';
 
             } else {
                 resultDiv.className = 'verification-result error';
                 resultIcon.textContent = '❌';
-                resultTitle.textContent = 'Vote Not Found';
-                resultSubtitle.textContent = 'No vote record found for the provided hash/ID';
+                resultTitle.textContent = 'Verification Failed';
+                resultSubtitle.textContent = payload.error || 'No vote record found for the provided hash/ID.';
                 
+                // Hide details sections on error
                 document.getElementById('voteDetails').style.display = 'none';
                 document.querySelector('.blockchain-info').style.display = 'none';
                 document.querySelector('.qr-code').style.display = 'none';
@@ -692,7 +707,6 @@
         }
 
         function downloadReceipt() {
-            // Simulate receipt download
             const content = `TRUECAST VOTE VERIFICATION RECEIPT
 =========================================
 
@@ -729,21 +743,21 @@ Generated on: ${new Date().toLocaleString()}
             window.open('/help#verification-faq', '_blank');
         }
 
-        // Auto-populate with sample data for demo
         document.getElementById('searchInput').addEventListener('focus', function() {
             if (!this.value) {
-                this.placeholder = '0x2f5a7b8c9d1e3f4a5b6c7d8e9f1a2b3c4d5e6f7a8b9c';
+                this.placeholder = 'Try a Voter ID like VS2025xxxxxx';
             }
         });
 
-        // Enter key support
-        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+        // Use 'keydown' for better Enter key support
+        document.getElementById('searchInput').addEventListener('keydown', function(e) {
             if (e.key === 'Enter') {
+                e.preventDefault(); // Prevent form submission if it were in a form
                 verifyVote();
             }
         });
 
-        // Auto-focus search input
+        // Auto-focus search input on page load
         document.getElementById('searchInput').focus();
     </script>
 </body>
