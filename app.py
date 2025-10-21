@@ -74,11 +74,23 @@ def save_votes(data):
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'voter_id' not in session:
-            # Redirect to login if user is not in session
-            return redirect(url_for('voter_login', next=request.url))
+        if not session.get('logged_in'):
+            flash('Please log in to access this page.', 'warning')
+            return redirect(url_for('voter_login'))
         return f(*args, **kwargs)
     return decorated_function
+
+# --- NEW: Admin Authentication Decorator ---
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('admin_logged_in'):
+            flash('You must be an admin to access this page.', 'error')
+            return redirect(url_for('admin_login'))
+        return f(*args, **kwargs)
+    return decorated_function
+# --- End NEW Decorator ---
+
 
 # --- Helper Functions ---
 def generate_hash_id(length=64):
@@ -168,38 +180,38 @@ def voter_register():
         # Add to the dictionary and save
         voters[voter_id] = data
         save_voters(voters)
-        # --- End JSON Database Insertion Logic ---
+
+        # Flash a success message
+        flash(f'Registration successful! Your new Voter ID is {voter_id}. Please log in.', 'success')
         
-        success_msg = f"Registration complete! Your ID is {voter_id}. Use this and your PIN to log in."
-        # After saving, we now redirect to the login page for the final step.
-        return redirect(url_for('voter_login', success=success_msg))
+        # Redirect to the login page with a success flag
+        return redirect(url_for('voter_login', success='true'))
 
-    # Handle GET request (initial load or redirect after OCR)
-    success_ocr = request.args.get('success_ocr')
-    success_msg = request.args.get('success')
-    error_msg = request.args.get('error')
-
-    parsed_data = {}
-    ocr_results = []
+    # This part handles the GET request for the registration page
+    # It receives data from the OCR step
+    parsed_data_json = request.args.get('parsed_data', '{}')
+    ocr_results_json = request.args.get('ocr_results', '[]')
     
-    if success_ocr:
-        try:
-            parsed_data = json.loads(request.args.get('parsed_data', '{}'))
-            ocr_results = json.loads(request.args.get('ocr_results', '[]'))
-            success_msg = "Identity document processed successfully. Please review."
-        except json.JSONDecodeError:
-            error_msg = error_msg or "Error decoding OCR data after processing."
+    try:
+        parsed_data = json.loads(parsed_data_json)
+        ocr_results = json.loads(ocr_results_json)
+    except json.JSONDecodeError:
+        parsed_data = {}
+        ocr_results = []
 
     return render_template(
-        'truecast_voter_register.html', 
-        success=success_msg, 
-        error=error_msg,
+        'truecast_voter_registration.html',
         parsed_data=parsed_data,
         ocr_results=ocr_results
     )
 
+
 @app.route('/voter-login', methods=['GET', 'POST'])
 def voter_login():
+    # If user is already logged in, redirect them to the dashboard
+    if 'logged_in' in session:
+        return redirect(url_for('voting_dashboard'))
+
     if request.method == 'POST':
         data = request.get_json()
         voter_id_or_email = data.get('voterId')
@@ -217,8 +229,9 @@ def voter_login():
 
         if authenticated_voter:
             # Login successful: Establish session
+            session['logged_in'] = True # CRITICAL: Set the logged_in flag
             session['voter_id'] = authenticated_voter['voter_id']
-            session['email'] = authenticated_voter['email']
+            session['email'] = authenticated_voter.get('email')
             session['full_name'] = authenticated_voter.get('Full Name', 'Voter')
             
             # The frontend is expecting a 'redirect' URL in the JSON response
@@ -233,6 +246,7 @@ def voter_login():
 
 @app.route('/logout')
 def logout():
+    session.pop('logged_in', None) # Ensure the logged_in flag is removed
     session.pop('voter_id', None)
     session.pop('email', None)
     session.pop('full_name', None)
@@ -299,6 +313,29 @@ def voting_dashboard():
     )
 
 
+# --- NEW: Results Page Route ---
+@app.route('/results')
+def results():
+    votes_data = load_votes()
+    
+    # Logic to count votes
+    results_tally = {
+        'mayor': {},
+        'council': {},
+        'proposition': {}
+    }
+    
+    for vote in votes_data.values():
+        if isinstance(vote, dict):
+            # Iterate over items to avoid counting the transactionHash
+            for race, candidate in vote.items():
+                if race in results_tally:
+                    results_tally[race][candidate] = results_tally[race].get(candidate, 0) + 1
+
+    return render_template('truecast_results.html', results=results_tally)
+# --- End NEW Route ---
+
+
 @app.route('/vote-verification', methods=['GET', 'POST'])
 @login_required
 def vote_verification():
@@ -359,61 +396,45 @@ def admin_login():
             flash('Invalid admin credentials.', 'error')
     return render_template('truecast_admin_login.html')
 
+# --- NEW: Admin Dashboard Route ---
 @app.route('/admin-dashboard')
-@login_required 
+@admin_required
 def admin_dashboard():
-    return render_template('truecast_admin_dashboard.html')
-
-@app.route('/api/admin/approve-results', methods=['POST'])
-def approve_results():
-    global results_approved
-    results_approved = True
-    print("Admin has approved the results.")
-    return jsonify({"success": True, "message": "Results approved successfully!"})
-
-@app.route('/results')
-def results():
+    voters_data = load_voters()
     votes_data = load_votes()
-    
-    # Simple logic to count votes
-    results = {
-        'mayor': {},
-        'council': {},
-        'proposition': {}
-    }
-    
+
+    # Calculate key metrics
+    total_voters = len(voters_data)
+    total_votes_cast = len(votes_data)
+    turnout = (total_votes_cast / total_voters * 100) if total_voters > 0 else 0
+
+    # Get recent registrations (last 5)
+    try:
+        recent_registrations = sorted(
+            voters_data.values(), 
+            key=lambda v: v.get('registration_date', '1970-01-01'), 
+            reverse=True
+        )[:5]
+    except Exception:
+        recent_registrations = list(voters_data.values())[:5]
+
+    # Vote distribution
+    results = { 'mayor': {}, 'council': {}, 'proposition': {} }
     for vote in votes_data.values():
         if isinstance(vote, dict):
             for race, candidate in vote.items():
                 if race in results:
                     results[race][candidate] = results[race].get(candidate, 0) + 1
-
-    return render_template('truecast_results.html', results=results)
-
-
-@app.route('/api/results')
-def get_results():
-    global results_approved
     
-    if results_approved:
-        demo_results = {
-            "Mayor of Central City": {
-                "Sarah Johnson": 1250,
-                "Michael Chen": 980,
-                "Elena Rodriguez": 720
-            },
-            "City Council - District 3": {
-                "David Kim": 2100,
-                "Maria Santos": 1500
-            },
-            "Proposition A - School Funding": {
-                "YES": 2500,
-                "NO": 1000
-            }
-        }
-        return jsonify({"success": True, "results": demo_results})
-    else:
-        return jsonify({"success": False, "message": "Results are not yet approved by admin."}), 200
+    return render_template(
+        'truecast_admin_dashboard.html',
+        total_voters=total_voters,
+        total_votes_cast=total_votes_cast,
+        turnout=turnout,
+        recent_registrations=recent_registrations,
+        all_voters=voters_data.values(),
+        results=results
+    )
 
 @app.route('/help')
 def help_page():

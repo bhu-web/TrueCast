@@ -22,6 +22,7 @@
         width: 100%;
         max-width: 400px;
         text-align: center;
+        border-top: 5px solid #3498db;
       }
       .login-container h1 {
         color: #2c3e50;
@@ -51,14 +52,14 @@
       }
       .form-group input:focus {
         outline: none;
-        border-color: #667eea;
+        border-color: #3498db;
       }
       .btn {
         width: 100%;
         padding: 1rem;
         border: none;
         border-radius: 10px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
         color: white;
         font-size: 1.1rem;
         font-weight: 600;
@@ -67,7 +68,7 @@
       }
       .btn:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(118, 75, 162, 0.3);
+        box-shadow: 0 5px 15px rgba(52, 152, 219, 0.3);
       }
       .flash-message {
         padding: 1rem;
@@ -77,6 +78,9 @@
       }
       .flash-error {
         background-color: #e74c3c;
+      }
+      .flash-success {
+        background-color: #27ae60;
       }
     </style>
   </head>
