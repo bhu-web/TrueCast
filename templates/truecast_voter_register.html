@@ -447,7 +447,6 @@
             </div>
 
             <form id="voterRegistrationForm" method="POST" enctype="multipart/form-data" action="/voter-register">
-                <!-- Step 1: Personal Information -->
                 <div class="form-step active" id="step1">
                     <h2>Personal Information</h2>
                     <p style="color: #7f8c8d; margin-bottom: 2rem;">Please provide your basic information for voter registration.</p>
@@ -501,7 +500,6 @@
                     </div>
                 </div>
 
-                <!-- Step 2: Identity Verification -->
                 <div class="form-step" id="step2">
                     <h2>Identity Verification</h2>
                     <p style="color: #7f8c8d; margin-bottom: 2rem;">Upload official documents to verify your identity and eligibility.</p>
@@ -569,7 +567,6 @@
                     </div>
                 </div>
 
-                <!-- Step 3: Biometric Setup -->
                 <div class="form-step" id="step3">
                     <h2>Biometric Authentication Setup</h2>
                     <p style="color: #7f8c8d; margin-bottom: 2rem;">Set up biometric authentication for secure voting access.</p>
@@ -612,7 +609,6 @@
                     </div>
                 </div>
 
-                <!-- Step 4: Security & Terms -->
                 <div class="form-step" id="step4">
                     <h2>Security Setup & Terms</h2>
                     <p style="color: #7f8c8d; margin-bottom: 2rem;">Complete your security setup and accept terms of service.</p>
@@ -907,18 +903,14 @@
 
         // Form submission
         document.getElementById('voterRegistrationForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            if (validateStep(4)) {
-                // In a real application, this would submit to the server
-                // For demo purposes, we'll simulate a successful submission
-                showMessage('Registration submitted successfully! Please check your email and phone for verification codes.', 'success');
-                
-                setTimeout(() => {
-                    alert('Registration complete! You will be redirected to the login page.');
-                    window.location.href = '/voter-login';
-                }, 3000);
+            // FIX: Only prevent the default action if validation fails.
+            if (!validateStep(4)) {
+                e.preventDefault();
+                return; 
             }
+            
+            // Allow the form to submit to the server to save data (POST to /voter-register)
+            // The Flask route will handle the final redirect/message.
         });
 
         // Auto-format phone number
@@ -940,7 +932,10 @@
                 if (currentStep < totalSteps) {
                     nextStep();
                 } else {
-                    document.getElementById('submitBtn').click();
+                    // Check validation before submitting
+                    if (validateStep(4)) {
+                        document.getElementById('submitBtn').click();
+                    }
                 }
             }
         });
