@@ -345,8 +345,18 @@ def verify_vote():
 def geo_verification():
     return render_template('truecast_geo_verification.html')
 
-@app.route('/admin-login')
+@app.route('/admin-login', methods=['GET', 'POST'])
 def admin_login():
+    if request.method == 'POST':
+        # This is a placeholder for actual admin authentication
+        username = request.form.get('username')
+        password = request.form.get('password')
+        if username == 'admin' and password == 'password': # IMPORTANT: Use secure credentials
+            session['admin_logged_in'] = True
+            flash('Admin login successful!', 'success')
+            return redirect('/admin-dashboard') # Assuming you have an admin dashboard
+        else:
+            flash('Invalid admin credentials.', 'error')
     return render_template('truecast_admin_login.html')
 
 @app.route('/admin-dashboard')
@@ -363,7 +373,23 @@ def approve_results():
 
 @app.route('/results')
 def results():
-    return render_template('truecast_results.html')
+    votes_data = load_votes()
+    
+    # Simple logic to count votes
+    results = {
+        'mayor': {},
+        'council': {},
+        'proposition': {}
+    }
+    
+    for vote in votes_data.values():
+        if isinstance(vote, dict):
+            for race, candidate in vote.items():
+                if race in results:
+                    results[race][candidate] = results[race].get(candidate, 0) + 1
+
+    return render_template('truecast_results.html', results=results)
+
 
 @app.route('/api/results')
 def get_results():
@@ -391,7 +417,7 @@ def get_results():
 
 @app.route('/help')
 def help_page():
-    return render_template('truecast_help_faq.html')
+    return render_template('truecast_help.html')
 
 @app.route('/about')
 def about():
