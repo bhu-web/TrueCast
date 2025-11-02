@@ -118,6 +118,10 @@
         font-weight: 600;
         margin-top: 1rem;
       }
+      
+      .election-status.inactive {
+        background: #e74c3c;
+      }
 
       /* Voting Section */
       .voting-section {
@@ -202,6 +206,13 @@
       .candidate-party {
         color: #7f8c8d;
         font-size: 0.9rem;
+      }
+      
+      .candidate-region {
+        color: #3498db;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-top: 5px;
       }
 
       .selection-indicator {
@@ -474,6 +485,7 @@
         <div class="logo">🗳️ TRUECAST</div>
         <nav>
           <ul class="nav-links">
+            <li><a href="/">Home</a></li>
             <li><a href="/voting-dashboard">Dashboard</a></li>
             <li><a href="/vote-verification">Verify Vote</a></li>
             <li><a href="/results">Results</a></li>
@@ -494,173 +506,95 @@
       <div class="dashboard-grid">
         <div class="main-content">
           <div class="content-header">
-            <h1>2025 General Election</h1>
-            <p>Municipal and State Representatives</p>
-            <span class="election-status">🟢 ACTIVE</span>
+            {% if election_active and election %}
+              <h1>{{ election.title }}</h1>
+              <p>{{ election.description }}</p>
+              <span class="election-status">🟢 ACTIVE</span>
+            {% else %}
+              <h1>No Active Election</h1>
+              <p>Please check back later for the next scheduled election.</p>
+              <span class="election-status inactive">🔴 ENDED</span>
+            {% endif %}
           </div>
 
           <div class="voting-section">
-            <div class="ballot-container">
-              <div class="ballot-header">
-                <div>
-                  <h2 class="ballot-title">Mayor of Central City</h2>
-                  <p class="ballot-info">Select ONE candidate • Required</p>
-                </div>
-              </div>
+            {% if election_active and filtered_ballot %}
+              <div id="ballot">
+                {% for race in filtered_ballot %}
+                  <div class="ballot-container">
+                    <div class="ballot-header">
+                      <div>
+                        <h2 class="ballot-title">{{ race.name }}</h2>
+                        <p class="ballot-info">Select ONE option • Required</p>
+                      </div>
+                    </div>
 
-              <div class="candidates-list">
-                <div
-                  class="candidate-card"
-                  onclick="selectCandidate('mayor', 'sarah-johnson')"
-                  data-candidate="sarah-johnson"
-                >
-                  <div class="candidate-info">
-                    <div class="candidate-photo">👩‍💼</div>
-                    <div class="candidate-details">
-                      <h3>Sarah Johnson</h3>
-                      <p class="candidate-party">Democratic Party</p>
-                      <small
-                        >Former City Council Member, 8 years experience</small
-                      >
+                    <div class="candidates-list">
+                      {% for candidate in race.candidates %}
+                        <div
+                          class="candidate-card"
+                          onclick="selectCandidate('{{ race.name | replace(' ', '-') | lower }}', '{{ candidate.name | replace(' ', '-') | lower }}')"
+                          data-race="{{ race.name | replace(' ', '-') | lower }}"
+                          data-candidate="{{ candidate.name | replace(' ', '-') | lower }}"
+                        >
+                          <div class="candidate-info">
+                            <div class="candidate-photo">{{ candidate.photoUrl | default('👤') }}</div>
+                            <div class="candidate-details">
+                              <h3>{{ candidate.name }}</h3>
+                              <p class="candidate-party">{{ candidate.party }}</p>
+                              <p class="candidate-region">Region: {{ candidate.region }}</p>
+                              <small
+                                >{{ candidate.description | default('') }}</small
+                              >
+                            </div>
+                          </div>
+                          <div class="selection-indicator"></div>
+                        </div>
+                      {% endfor %}
                     </div>
                   </div>
-                  <div class="selection-indicator"></div>
-                </div>
-
-                <div
-                  class="candidate-card"
-                  onclick="selectCandidate('mayor', 'michael-chen')"
-                  data-candidate="michael-chen"
-                >
-                  <div class="candidate-info">
-                    <div class="candidate-photo">👨‍💼</div>
-                    <div class="candidate-details">
-                      <h3>Michael Chen</h3>
-                      <p class="candidate-party">Republican Party</p>
-                      <small>Business Leader, Former Chamber President</small>
-                    </div>
-                  </div>
-                  <div class="selection-indicator"></div>
-                </div>
-
-                <div
-                  class="candidate-card"
-                  onclick="selectCandidate('mayor', 'elena-rodriguez')"
-                  data-candidate="elena-rodriguez"
-                >
-                  <div class="candidate-info">
-                    <div class="candidate-photo">👩‍🎓</div>
-                    <div class="candidate-details">
-                      <h3>Elena Rodriguez</h3>
-                      <p class="candidate-party">Independent</p>
-                      <small>Education Advocate, Community Organizer</small>
-                    </div>
-                  </div>
-                  <div class="selection-indicator"></div>
-                </div>
+                {% endfor %}
               </div>
-            </div>
-
-            <div class="ballot-container">
-              <div class="ballot-header">
-                <div>
-                  <h2 class="ballot-title">City Council - District 3</h2>
-                  <p class="ballot-info">Select ONE candidate • Required</p>
-                </div>
-              </div>
-
-              <div class="candidates-list">
-                <div
-                  class="candidate-card"
-                  onclick="selectCandidate('council', 'david-kim')"
-                  data-candidate="david-kim"
-                >
-                  <div class="candidate-info">
-                    <div class="candidate-photo">👨‍💻</div>
-                    <div class="candidate-details">
-                      <h3>David Kim</h3>
-                      <p class="candidate-party">Democratic Party</p>
-                      <small
-                        >Tech Industry Leader, Environmental Advocate</small
-                      >
-                    </div>
-                  </div>
-                  <div class="selection-indicator"></div>
-                </div>
-
-                <div
-                  class="candidate-card"
-                  onclick="selectCandidate('council', 'maria-santos')"
-                  data-candidate="maria-santos"
-                >
-                  <div class="candidate-info">
-                    <div class="candidate-photo">👩‍🏫</div>
-                    <div class="candidate-details">
-                      <h3>Maria Santos</h3>
-                      <p class="candidate-party">Republican Party</p>
-                      <small>Retired Teacher, Community Volunteer</small>
-                    </div>
-                  </div>
-                  <div class="selection-indicator"></div>
-                </div>
-              </div>
-            </div>
-
-            <div class="ballot-container">
-              <div class="ballot-header">
-                <div>
-                  <h2 class="ballot-title">Proposition A - School Funding</h2>
-                  <p class="ballot-info">Select YES or NO • Required</p>
-                </div>
-              </div>
-
+            {% elif election_active and not filtered_ballot %}
               <div
                 style="
-                  background: #f8f9fa;
-                  padding: 1rem;
+                  text-align: center;
+                  padding: 5rem 2rem;
+                  background: #fff3e0;
+                  border: 2px solid #ff9800;
                   border-radius: 10px;
-                  margin-bottom: 1rem;
+                  margin-top: 2rem;
                 "
               >
-                <p>
-                  <strong>Question:</strong> Shall the city increase property
-                  taxes by 0.5% to fund new school construction and technology
-                  upgrades?
+                <h2 style="color: #ff9800; margin-bottom: 1rem">
+                  ⚠️ No races for your region ({{ voter_region | default('N/A') }})
+                </h2>
+                <p style="font-size: 1.1rem; color: #757575">
+                  The current election does not have any races designated for your registered voting region.
                 </p>
               </div>
-
-              <div class="candidates-list">
-                <div
-                  class="candidate-card"
-                  onclick="selectCandidate('proposition', 'yes')"
-                  data-candidate="yes"
-                >
-                  <div class="candidate-info">
-                    <div class="candidate-photo">✅</div>
-                    <div class="candidate-details">
-                      <h3>YES on Proposition A</h3>
-                      <p class="candidate-party">Support School Funding</p>
-                    </div>
-                  </div>
-                  <div class="selection-indicator"></div>
-                </div>
-
-                <div
-                  class="candidate-card"
-                  onclick="selectCandidate('proposition', 'no')"
-                  data-candidate="no"
-                >
-                  <div class="candidate-info">
-                    <div class="candidate-photo">❌</div>
-                    <div class="candidate-details">
-                      <h3>NO on Proposition A</h3>
-                      <p class="candidate-party">Oppose Tax Increase</p>
-                    </div>
-                  </div>
-                  <div class="selection-indicator"></div>
-                </div>
+            {% else %}
+              <div
+                style="
+                  text-align: center;
+                  padding: 5rem 2rem;
+                  background: #f8f8f8;
+                  border: 2px solid #ccc;
+                  border-radius: 10px;
+                  margin-top: 2rem;
+                "
+              >
+                <h2 style="color: #e74c3c; margin-bottom: 1rem">
+                  🗳️ Election is Not Active
+                </h2>
+                <p style="font-size: 1.1rem; color: #757575">
+                  There is currently no active election available for voting. Please check the results page or contact support for information on the next election.
+                </p>
+                <p style="margin-top: 1.5rem">
+                  <a href="/results" class="btn btn-primary">View Past Results</a>
+                </p>
               </div>
-            </div>
+            {% endif %}
 
             {% if has_voted %}
             <div
@@ -677,8 +611,7 @@
                 ⚠️ Your vote has already been cast!
               </h2>
               <p style="font-size: 1.1rem; color: #757575">
-                Your vote has been securely recorded on the blockchain and
-                cannot be changed.
+                Your vote has been securely recorded on the blockchain for this election ({{ election.title if election else '' }}).
               </p>
               <p style="margin-top: 1.5rem">
                 <a href="/vote-verification" class="btn btn-primary"
@@ -686,7 +619,7 @@
                 >
               </p>
             </div>
-            {% else %}
+            {% elif election_active and filtered_ballot %}
             <div class="action-buttons">
               <button class="btn btn-outline" onclick="reviewVote()">
                 Review Selections
@@ -705,13 +638,15 @@
         </div>
 
         <div class="sidebar">
+          {% if election_active %}
           <div class="sidebar-card">
             <h3>⏰ Time Remaining</h3>
-            <div class="timer-display" id="electionTimer">02:15:30</div>
+            <div class="timer-display" id="electionTimer">00:00:00</div>
             <p style="color: #7f8c8d; text-align: center; font-size: 0.9rem">
-              Election ends at 8:00 PM PST
+              Election ends: <span id="electionEndTime">{{ election.endDate.split('T')[0] }} at {{ election.endDate.split('T')[1].split('.')[0] }} UTC</span>
             </p>
           </div>
+          {% endif %}
 
           <div class="sidebar-card">
             <h3>📊 Your Progress</h3>
@@ -724,7 +659,7 @@
                 "
               >
                 <span>Completed</span>
-                <span id="progressText">0/3</span>
+                <span id="progressText">0/{{ all_race_ids | length }}</span>
               </div>
               <div class="progress-bar">
                 <div
@@ -736,19 +671,7 @@
             </div>
 
             <div class="vote-summary" id="voteSummary">
-              <div class="vote-item">
-                <span>Mayor:</span>
-                <span id="mayorChoice">Not selected</span>
               </div>
-              <div class="vote-item">
-                <span>City Council:</span>
-                <span id="councilChoice">Not selected</span>
-              </div>
-              <div class="vote-item">
-                <span>Proposition A:</span>
-                <span id="propositionChoice">Not selected</span>
-              </div>
-            </div>
           </div>
 
           <div class="sidebar-card">
@@ -808,19 +731,7 @@
         </p>
 
         <div class="final-vote-summary" id="finalVoteSummary">
-          <div class="vote-item">
-            <strong>Mayor of Central City:</strong>
-            <span id="finalMayor">Not selected</span>
           </div>
-          <div class="vote-item">
-            <strong>City Council - District 3:</strong>
-            <span id="finalCouncil">Not selected</span>
-          </div>
-          <div class="vote-item">
-            <strong>Proposition A:</strong>
-            <span id="finalProposition">Not selected</span>
-          </div>
-        </div>
 
         <div
           style="
@@ -892,303 +803,344 @@
     </div>
 
     <script>
-      // Vote tracking
-      let votes = {
-          mayor: null,
-          council: null,
-          proposition: null
-      };
+        // Server-provided data
+        const SERVER_HAS_VOTED = {{ has_voted | tojson | safe }};
+        const SERVER_ELECTION_ACTIVE = {{ election_active | tojson | safe }};
+        const SERVER_ALL_RACE_IDS = {{ all_race_ids | tojson | safe }};
+        // FIX: Ensure SERVER_ELECTION defaults to {} to prevent JSON errors on missing objects
+        const SERVER_ELECTION = {{ election | default({}) | tojson | safe }};
 
-      // Server-provided state exposed as JS-friendly variables
-      const SERVER_HAS_VOTED = {{ has_voted | tojson }};
+        // FIX: Ensure filtered_ballot defaults to '[]'. This is now a JSON string in JS.
+        const filteredBallotJSON = {{ filtered_ballot | tojson | default('[]') | safe }}; 
+        
+        let votes = {};
+        let raceTitles = {}; // Map race slug back to full title for summary
+        let candidateDisplayNames = {}; // Map candidate slug back to display name
 
-      // --- SESSION CLEANUP ---
-      // If the user has NOT voted, we must clear any leftover local storage from a previous user.
-      // This ensures a clean slate for a new voting session.
-      if (!SERVER_HAS_VOTED) {
-          localStorage.removeItem('truecast_votes');
-      }
-      // --- END SESSION CLEANUP ---
+        // Build initial data structure by parsing the JSON string once
+        if (SERVER_ELECTION_ACTIVE) {
+            // FIX: Parse the JSON string *once* into a JavaScript object
+            const filteredBallot = JSON.parse(filteredBallotJSON);
+            
+            filteredBallot.forEach(race => {
+                const raceSlug = race.name.replace(/ /g, '-').toLowerCase();
+                votes[raceSlug] = null;
+                raceTitles[raceSlug] = race.name;
+                
+                // Add candidate display names to the mapping
+                race.candidates.forEach(candidate => {
+                    const candidateSlug = candidate.name.replace(/ /g, '-').toLowerCase();
+                    candidateDisplayNames[candidateSlug] = candidate.name;
+                });
+            });
+            // Ensure the end time display reflects IST
+        const endTimeElement = document.getElementById('electionEndTime');
+        if (endTimeElement && SERVER_ELECTION.endDate) {
+            const utcDate = new Date(SERVER_ELECTION.endDate);
+            // Format the UTC date string explicitly for IST (UTC+5:30) display
+            const istOptions = { 
+                year: 'numeric', month: 'short', day: 'numeric', 
+                hour: '2-digit', minute: '2-digit', second: '2-digit', 
+                timeZone: 'Asia/Kolkata', hour12: true 
+            };
+            const istDateString = utcDate.toLocaleString('en-IN', istOptions);
+            endTimeElement.textContent = `${istDateString} IST`;
+        }
+        }
 
-      try {
-          const serverVotes = JSON.parse(`{{ previous_votes | default({}) | tojson | safe }}`);
-          if (SERVER_HAS_VOTED && Object.keys(serverVotes).length > 0) {
-              votes = serverVotes;
-          }
-      } catch (e) {
-          console.error("Could not parse previous votes from server.", e);
-      }
+        // Overwrite with previous votes if available
+        try {
+            const previousVotes = {{ previous_votes | default({}) | tojson | safe }};
+            // Filter out the metadata fields (like transactionHash, electionId)
+            Object.keys(previousVotes).forEach(key => {
+                if (votes.hasOwnProperty(key)) {
+                    votes[key] = previousVotes[key];
+                }
+            });
+        } catch (e) {
+            console.error("Could not parse previous votes from server.", e);
+        }
+        
+        // --- SESSION CLEANUP / LOCAL STORAGE LOAD ---
+        if (!SERVER_HAS_VOTED && SERVER_ELECTION_ACTIVE) {
+            const localStorageKey = `truecast_votes_${SERVER_ELECTION.id}`;
+            const savedVotes = localStorage.getItem(localStorageKey);
+            if (savedVotes) {
+                try {
+                    const parsedVotes = JSON.parse(savedVotes);
+                    // Merge saved votes, respecting only keys defined in the current race.
+                    Object.keys(parsedVotes).forEach(raceSlug => {
+                        if (votes.hasOwnProperty(raceSlug)) {
+                            votes[raceSlug] = parsedVotes[raceSlug];
+                        }
+                    });
+                } catch (e) {
+                    console.log('Could not load saved votes from local storage.');
+                }
+            }
+        }
+        // --- END SESSION CLEANUP / LOCAL STORAGE LOAD ---
 
-      // Candidate names mapping
-      const candidateNames = {
-          'sarah-johnson': 'Sarah Johnson',
-          'michael-chen': 'Michael Chen',
-          'elena-rodriguez': 'Elena Rodriguez',
-          'david-kim': 'David Kim',
-          'maria-santos': 'Maria Santos',
-          'yes': 'YES',
-          'no': 'NO'
-      };
+        function selectCandidate(raceSlug, candidateSlug) {
+            if (SERVER_HAS_VOTED) {
+                return;
+            }
+            
+            const currentRaceCards = document.querySelectorAll(`[data-race="${raceSlug}"]`);
+            currentRaceCards.forEach(card => {
+                card.classList.remove('selected');
+                card.querySelector('.selection-indicator').innerHTML = '';
+            });
 
-      function selectCandidate(race, candidate) {
-          if (SERVER_HAS_VOTED) {
-              return;
-          }
+            const selectedCard = document.querySelector(`[data-race="${raceSlug}"][data-candidate="${candidateSlug}"]`);
+            selectedCard.classList.add('selected');
+            selectedCard.querySelector('.selection-indicator').innerHTML = '✓';
 
-          document.querySelectorAll(`[data-candidate]`).forEach(card => {
-              if (card.closest('.ballot-container').querySelector('.ballot-title').textContent.includes(getTitleKeyword(race))) {
-                  card.classList.remove('selected');
-                  card.querySelector('.selection-indicator').innerHTML = '';
-              }
-          });
+            votes[raceSlug] = candidateSlug;
+            updateProgress();
+            updateVoteSummary();
+        }
 
-          const selectedCard = document.querySelector(`[data-candidate="${candidate}"]`);
-          selectedCard.classList.add('selected');
-          selectedCard.querySelector('.selection-indicator').innerHTML = '✓';
+        function updateProgress() {
+            // Note: SERVER_ALL_RACE_IDS is the list of race names (not slugs). We need to convert them to check against the 'votes' object keys (slugs).
+            const races = SERVER_ALL_RACE_IDS.map(name => name.replace(/ /g, '-').toLowerCase());
+            let completed = 0;
+            
+            races.forEach(raceSlug => {
+                if (votes[raceSlug] !== null && votes[raceSlug] !== undefined) {
+                    completed++;
+                }
+            });
 
-          votes[race] = candidate;
-          updateProgress();
-          updateVoteSummary();
-      }
+            const total = races.length;
+            const percentage = (completed / total) * 100;
 
-      function getTitleKeyword(race) {
-          switch(race) {
-              case 'mayor': return 'Mayor';
-              case 'council': return 'Council';
-              case 'proposition': return 'Proposition';
-              default: return '';
-          }
-      }
+            document.getElementById('progressText').textContent = `${completed}/${total}`;
+            document.getElementById('progressFill').style.width = `${percentage}%`;
 
-      function updateProgress() {
-          // Define the specific races to count for progress.
-          const races = ['mayor', 'council', 'proposition'];
-          let completed = 0;
-          
-          // Count only the defined races that have a selection.
-          races.forEach(race => {
-              if (votes[race] !== null && votes[race] !== undefined) {
-                  completed++;
-              }
-          });
+            if (!SERVER_HAS_VOTED) {
+                const submitBtn = document.getElementById('submitVoteBtn');
+                if (submitBtn) {
+                    submitBtn.disabled = completed < total;
+                }
+            }
+        }
 
-          const total = 3;
-          const percentage = (completed / total) * 100;
+        function updateVoteSummary() {
+            const summaryDiv = document.getElementById('voteSummary');
+            summaryDiv.innerHTML = '';
+            
+            Object.keys(votes).forEach(raceSlug => {
+                const raceTitle = raceTitles[raceSlug];
+                const candidateSlug = votes[raceSlug];
+                const displayChoice = candidateSlug ? candidateDisplayNames[candidateSlug] : 'Not selected';
 
-          document.getElementById('progressText').textContent = `${completed}/${total}`;
-          document.getElementById('progressFill').style.width = `${percentage}%`;
+                const item = document.createElement('div');
+                item.className = 'vote-item';
+                item.innerHTML = `
+                    <span>${raceTitle.length > 20 ? raceTitle.substring(0, 17) + '...' : raceTitle}:</span>
+                    <span id="${raceSlug}Choice" style="color: ${candidateSlug ? '#2c3e50' : '#e74c3c'}">${displayChoice}</span>
+                `;
+                summaryDiv.appendChild(item);
+            });
+        }
 
-          if (!SERVER_HAS_VOTED) {
-              const submitBtn = document.getElementById('submitVoteBtn');
-              if (submitBtn) {
-                submitBtn.disabled = completed < total;
-              }
-          }
-      }
+        function reviewVote() {
+            updateFinalSummary();
+            document.getElementById('confirmationModal').style.display = 'flex';
+        }
 
-      function updateVoteSummary() {
-          document.getElementById('mayorChoice').textContent =
-              votes.mayor ? candidateNames[votes.mayor] : 'Not selected';
-          document.getElementById('councilChoice').textContent =
-              votes.council ? candidateNames[votes.council] : 'Not selected';
-          document.getElementById('propositionChoice').textContent =
-              votes.proposition ? candidateNames[votes.proposition] : 'Not selected';
-      }
+        function submitVote() {
+            const completed = Object.values(votes).filter(vote => vote !== null).length;
+            const totalRequired = SERVER_ALL_RACE_IDS.length;
+            
+            if (completed < totalRequired) {
+                showErrorModal('Please make selections for all required races before submitting your vote.');
+                return;
+            }
+            reviewVote();
+        }
 
-      function reviewVote() {
-          updateFinalSummary();
-          document.getElementById('confirmationModal').style.display = 'flex';
-      }
+        function updateFinalSummary() {
+            const finalSummaryDiv = document.getElementById('finalVoteSummary');
+            finalSummaryDiv.innerHTML = '';
 
-      function submitVote() {
-          const completed = Object.values(votes).filter(vote => vote !== null).length;
-          if (completed < 3) {
-              showErrorModal('Please make selections for all races before submitting your vote.');
-              return;
-          }
-          reviewVote();
-      }
+            Object.keys(votes).forEach(raceSlug => {
+                const raceTitle = raceTitles[raceSlug];
+                const candidateSlug = votes[raceSlug];
+                const displayChoice = candidateSlug ? candidateDisplayNames[candidateSlug] : 'NOT SELECTED (Error)';
 
-      function updateFinalSummary() {
-          document.getElementById('finalMayor').textContent =
-              votes.mayor ? candidateNames[votes.mayor] : 'Not selected';
-          document.getElementById('finalCouncil').textContent =
-              votes.council ? candidateNames[votes.council] : 'Not selected';
-          document.getElementById('finalProposition').textContent =
-              votes.proposition ? candidateNames[votes.proposition] : 'Not selected';
-      }
+                const item = document.createElement('div');
+                item.className = 'vote-item';
+                item.innerHTML = `
+                    <strong>${raceTitle}:</strong>
+                    <span>${displayChoice}</span>
+                `;
+                finalSummaryDiv.appendChild(item);
+            });
+        }
 
-      function closeModal(modalId) {
-          const modal = document.getElementById(modalId);
-          if (modal) {
-            modal.style.display = 'none';
-          }
-      }
-      
-      function showErrorModal(message) {
-          document.getElementById('errorMessage').textContent = message;
-          document.getElementById('errorModal').style.display = 'flex';
-      }
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+        
+        function showErrorModal(message) {
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorModal').style.display = 'flex';
+        }
 
-      function confirmVote() {
-          const confirmBtn = document.querySelector('#confirmationModal .btn-success');
-          confirmBtn.textContent = 'Submitting...';
-          confirmBtn.disabled = true;
+        function confirmVote() {
+            const confirmBtn = document.querySelector('#confirmationModal .btn-success');
+            confirmBtn.textContent = 'Submitting...';
+            confirmBtn.disabled = true;
 
-          const voterIdElement = document.querySelector('.user-info small');
-          const voterIdText = voterIdElement ? voterIdElement.textContent : 'Voter ID: N/A';
-          const voterId = voterIdText.replace('Voter ID: ', '');
+            const voterId = '{{ voter_id | default('N/A') }}';
 
-          fetch('/voting-dashboard', {
-              method: 'POST',
-              headers: {
-                  'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                  voterId: voterId,
-                  selections: votes
-              })
-          })
-          .then(response => response.json())
-          .then(data => {
-              closeModal('confirmationModal');
-              if (data.success) {
-                  document.getElementById('transactionHash').textContent = data.transactionHash;
-                  localStorage.removeItem('truecast_votes');
-                  document.getElementById('successModal').style.display = 'flex';
-                  setTimeout(() => { window.location.reload(); }, 5000);
-              } else {
-                  showErrorModal(data.error || "An unknown error occurred during vote submission.");
-                  confirmBtn.textContent = 'Confirm & Submit Vote';
-                  confirmBtn.disabled = false;
-                  if (data.transactionHash === "ALREADY_CAST") {
-                      setTimeout(() => { window.location.reload(); }, 3000);
-                  }
-              }
-          })
-          .catch(error => {
-              console.error('Vote submission error:', error);
-              closeModal('confirmationModal');
-              showErrorModal("Network error: Could not submit vote.");
-              confirmBtn.textContent = 'Confirm & Submit Vote';
-              confirmBtn.disabled = false;
-          });
-      }
+            fetch('/voting-dashboard', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    voterId: voterId,
+                    selections: votes
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                closeModal('confirmationModal');
+                if (data.success) {
+                    document.getElementById('transactionHash').textContent = data.transactionHash;
+                    localStorage.removeItem(`truecast_votes_${SERVER_ELECTION.id}`);
+                    document.getElementById('successModal').style.display = 'flex';
+                    // Reload the page to show the "already voted" message
+                    setTimeout(() => { window.location.reload(); }, 5000); 
+                } else {
+                    showErrorModal(data.error || "An unknown error occurred during vote submission.");
+                    confirmBtn.textContent = 'Confirm & Submit Vote';
+                    confirmBtn.disabled = false;
+                    if (data.transactionHash === "ALREADY_CAST") {
+                        setTimeout(() => { window.location.reload(); }, 3000);
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Vote submission error:', error);
+                closeModal('confirmationModal');
+                showErrorModal("Network error: Could not submit vote.");
+                confirmBtn.textContent = 'Confirm & Submit Vote';
+                confirmBtn.disabled = false;
+            });
+        }
 
-      function goToVerification() {
-          window.location.href = '/vote-verification';
-      }
+        function goToVerification() {
+            window.location.href = '/vote-verification';
+        }
 
-      function viewResults() {
-          window.location.href = '/results';
-      }
+        function viewResults() {
+            window.location.href = '/results';
+        }
 
-      function openHelp() {
-          window.open('/help', '_blank');
-      }
+        function openHelp() {
+            window.open('/help', '_blank');
+        }
 
-      function openAccessibility() {
-          document.body.classList.toggle('high-contrast');
-          document.body.classList.toggle('large-text');
-      }
+        function openAccessibility() {
+            document.body.classList.toggle('high-contrast');
+            document.body.classList.toggle('large-text');
+        }
 
-      function contactSupport() {
-          window.open('/help#contact', '_blank');
-      }
+        function contactSupport() {
+            window.open('/help#contact', '_blank');
+        }
 
-      function updateTimer() {
-          const now = new Date().getTime();
-          const electionEnd = new Date();
-          electionEnd.setHours(20, 0, 0, 0); 
+        function updateTimer() {
+            if (!SERVER_ELECTION_ACTIVE || !SERVER_ELECTION.endDate) return;
 
-          if (electionEnd <= now) {
-              electionEnd.setDate(electionEnd.getDate() + 1);
-          }
+            const now = new Date().getTime();
+            const electionEnd = new Date(SERVER_ELECTION.endDate).getTime();
+            const timeLeft = electionEnd - now;
+            
+            const timerDisplay = document.getElementById('electionTimer');
+            
+            if (timeLeft <= 0) {
+                timerDisplay.textContent = '00:00:00';
+                document.querySelector('.election-status').textContent = '🔴 ENDED';
+                document.querySelector('.election-status').classList.add('inactive');
+                clearInterval(timerInterval); // Stop the timer
+                window.location.reload(); // Force reload to show ended state
+                return;
+            }
 
-          const timeLeft = electionEnd - now;
-          const hours = Math.floor(timeLeft / (1000 * 60 * 60));
-          const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-          const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
+            const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+            const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
 
-          document.getElementById('electionTimer').textContent =
-              `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-      }
+            timerDisplay.textContent =
+                `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+        
+        let timerInterval;
 
-      function initializeUI() {
-          // First, try to load votes from local storage if the user hasn't voted yet.
-          if (!SERVER_HAS_VOTED) {
-              const savedVotes = localStorage.getItem('truecast_votes');
-              if (savedVotes) {
-                  try {
-                      const parsedVotes = JSON.parse(savedVotes);
-                      // Only load if the structure is valid
-                      if (parsedVotes.mayor !== undefined && parsedVotes.council !== undefined && parsedVotes.proposition !== undefined) {
-                        votes = parsedVotes;
-                      }
-                  } catch (e) {
-                      console.log('Could not load saved votes from local storage.');
-                  }
-              } else {
-                  // If no saved votes, ensure the state is clean for a new user.
-                  votes = { mayor: null, council: null, proposition: null };
-              }
-          }
+        function initializeUI() {
+            if (SERVER_ELECTION_ACTIVE) {
+                initializeBallotInteractions();
+                updateVoteSummary(); // Initial summary render
+                updateProgress();
+                
+                timerInterval = setInterval(updateTimer, 1000); // Start timer
+                updateTimer(); // Initial call
+            }
+            // If already voted, disable all cards
+            if (SERVER_HAS_VOTED) {
+                document.querySelectorAll('.candidate-card').forEach(card => card.classList.add('voted-on'));
+            }
+        }
 
-          // Now, update the entire UI based on the current state of the 'votes' object.
-          // This works for both pre-filled server votes and locally saved votes.
-          updateVoteSummary();
-          updateProgress();
+        function initializeBallotInteractions() {
+            // If the user has already voted, disable all card clicks
+            if (SERVER_HAS_VOTED) {
+                document.querySelectorAll('.candidate-card').forEach(card => card.classList.add('voted-on'));
+                return;
+            }
 
-          Object.keys(votes).forEach(race => {
-              const candidate = votes[race];
-              if (candidate) {
-                  const selectedCard = document.querySelector(`[data-candidate="${candidate}"]`);
-                  if (selectedCard) {
-                      selectedCard.classList.add('selected');
-                      selectedCard.querySelector('.selection-indicator').innerHTML = '✓';
-                  }
-              }
-          });
+            // Restore selections from local storage/server data
+            Object.keys(votes).forEach(raceSlug => {
+                const candidateSlug = votes[raceSlug];
+                if (candidateSlug) {
+                    const selectedCard = document.querySelector(`[data-race="${raceSlug}"][data-candidate="${candidateSlug}"]`);
+                    if (selectedCard) {
+                        selectedCard.classList.add('selected');
+                        selectedCard.querySelector('.selection-indicator').innerHTML = '✓';
+                    }
+                }
+            });
+        }
 
-          // If the user has already voted, disable interactions with the ballot.
-          if (SERVER_HAS_VOTED) {
-              document.querySelectorAll('.candidate-card').forEach(card => card.classList.add('voted-on'));
-          }
-      }
+        // Auto-save selections to prevent data loss, but only if voting is still open for this user
+        if (!SERVER_HAS_VOTED && SERVER_ELECTION_ACTIVE) {
+            setInterval(() => {
+                const localStorageKey = `truecast_votes_${SERVER_ELECTION.id}`;
+                localStorage.setItem(localStorageKey, JSON.stringify(votes));
+            }, 5000);
+        }
 
-      // Initialize timer
-      updateTimer();
-      setInterval(updateTimer, 1000);
+        // Initialize the UI when the page loads
+        window.addEventListener('load', initializeUI);
 
-      // Keyboard accessibility
-      document.addEventListener('keydown', function(e) {
-          if (e.key === 'Escape') {
-              closeModal('confirmationModal');
-              closeModal('successModal');
-              closeModal('errorModal');
-          }
-      });
-
-      // Auto-save selections to prevent data loss, but only if voting is still open for this user
-      if (!SERVER_HAS_VOTED) {
-          setInterval(() => {
-              localStorage.setItem('truecast_votes', JSON.stringify(votes));
-          }, 5000);
-      }
-
-      // Initialize the UI when the page loads
-      window.addEventListener('load', initializeUI);
-
-      // Prevent accidental page refresh
-      window.addEventListener('beforeunload', function(e) {
-          if (!SERVER_HAS_VOTED) {
-              const hasVotes = Object.values(votes).some(vote => vote !== null);
-              if (hasVotes) {
-                  e.preventDefault();
-                  e.returnValue = '';
-              }
-          }
-      });
+        // Prevent accidental page refresh
+        window.addEventListener('beforeunload', function(e) {
+            if (!SERVER_HAS_VOTED && SERVER_ELECTION_ACTIVE) {
+                const hasVotes = Object.values(votes).some(vote => vote !== null);
+                if (hasVotes) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
+            }
+        });
     </script>
   </body>
 </html>

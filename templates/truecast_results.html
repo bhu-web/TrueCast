@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TRUECAST - Voting Results</title>
     <style>
+        /* ... (CSS remains unchanged) ... */
         * {
             margin: 0;
             padding: 0;
@@ -141,21 +142,16 @@
             font-size: 1.5rem;
             color: #7f8c8d;
         }
-
-        /* Loading States */
-        .loading-spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #3498db;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        
+        .alert-restricted {
+            background: #fdf2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+            padding: 1.5rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+            font-size: 1.1rem;
+            font-weight: 600;
         }
     </style>
 </head>
@@ -163,88 +159,55 @@
     <div class="header">
         <div class="header-content">
             <div class="logo">🗳️ TRUECAST ELECTION RESULTS</div>
-            <div class="admin-actions">
-                <a href="/admin-login" class="btn btn-secondary">Admin Dashboard</a>
             </div>
-        </div>
     </div>
 
     <div class="container">
-        <div id="loading-spinner-container" style="text-align: center; margin-top: 5rem;">
-            <div class="loading-spinner" style="width: 50px; height: 50px; border-width: 5px;"></div>
-            <p style="margin-top: 1rem; color: #7f8c8d;">Loading results...</p>
-        </div>
-
-        <div id="results-content" style="display: none;">
-            <div class="results-card">
-                <div class="results-header">
-                    <h2 class="results-title">Election Results</h2>
-                    <p class="results-subtitle">Final results for all races are now published.</p>
-                </div>
-                <div id="results-display">
-                    <!-- Results will be dynamically inserted here -->
-                </div>
+        {% if message %}
+            <div class="alert-restricted">
+                {{ message }}
             </div>
-        </div>
-
-        <div id="no-results-content" class="no-results-message" style="display: none;">
-            <p>Results are not yet published. Voting is still in progress or results are being verified by the administration. Please check back later.</p>
+        {% endif %}
+        
+        <div class="results-card">
+            <div class="results-header">
+                <h2 class="results-title">{{ election_title }}</h2>
+                <p class="results-subtitle">
+                    {% if results %}
+                        Certified results for all races are now published.
+                    {% elif not message %}
+                        Results are currently unavailable.
+                    {% endif %}
+                </p>
+            </div>
+            
+            {% if results %}
+                <div id="results-display">
+                    {% for race_slug, candidates in results.items() %}
+                        <div class="race-card">
+                            <h3 class="race-title">{{ race_slug | replace('-', ' ') | capitalize }}</h3>
+                            <ul class="candidate-list">
+                                {% set total_votes_in_race = candidates.values() | sum %}
+                                {% for candidate_slug, count in candidates.items() %}
+                                    <li class="candidate-item">
+                                        <span class="candidate-name">{{ candidate_slug | replace('-', ' ') | capitalize }}</span>
+                                        <div style="display: flex; align-items: center; gap: 15px;">
+                                            {% set percentage = (count / total_votes_in_race * 100) | round(1) if total_votes_in_race > 0 else 0 %}
+                                            <span style="color: #3498db; font-weight: bold;">{{ percentage }}%</span>
+                                            <span class="candidate-votes">{{ count }} Votes</span>
+                                        </div>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% elif not message %}
+                <div class="no-results-message">
+                    <p>No votes have been recorded for this election yet.</p>
+                </div>
+            {% endif %}
         </div>
     </div>
-
-    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-    <script>
-        $(document).ready(function() {
-            // Function to fetch the results from the backend
-            function fetchResults() {
-                $.ajax({
-                    url: '/api/results',
-                    type: 'GET',
-                    success: function(response) {
-                        $('#loading-spinner-container').hide();
-                        
-                        if (response.success) {
-                            displayResults(response.results);
-                            $('#results-content').show();
-                        } else {
-                            // If success is false, it means results are not approved
-                            $('#no-results-content').show();
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        $('#loading-spinner-container').hide();
-                        console.error("Failed to fetch results:", error);
-                        $('#no-results-content').show(); // Show this message on error as well
-                    }
-                });
-            }
-
-            // Function to dynamically display the results
-            function displayResults(results) {
-                let resultsHtml = '';
-                for (const race in results) {
-                    if (results.hasOwnProperty(race)) {
-                        resultsHtml += `<div class="race-card">
-                                            <h3 class="race-title">${race}</h3>
-                                            <ul class="candidate-list">`;
-                        for (const candidate in results[race]) {
-                            if (results[race].hasOwnProperty(candidate)) {
-                                const votes = results[race][candidate];
-                                resultsHtml += `<li class="candidate-item">
-                                                    <span class="candidate-name">${candidate}</span>
-                                                    <span class="candidate-votes">${votes}</span>
-                                                </li>`;
-                            }
-                        }
-                        resultsHtml += `</ul></div>`;
-                    }
-                }
-                $('#results-display').html(resultsHtml);
-            }
-
-            // Initial call to fetch results
-            fetchResults();
-        });
-    </script>
 </body>
 </html>

@@ -89,10 +89,6 @@
       <h1>Admin Login</h1>
       <p>Access the TRUECAST Management Dashboard</p>
 
-      {% with messages = get_flashed_messages(with_categories=true) %} {% if
-      messages %} {% for category, message in messages %}
-      <div class="flash-message flash-{{ category }}">{{ message }}</div>
-      {% endfor %} {% endif %} {% endwith %}
 
       <form method="POST" action="{{ url_for('admin_login') }}">
         <div class="form-group">

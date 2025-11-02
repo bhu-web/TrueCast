@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TRUECAST - Voter Registration</title>
     <style>
+        /* ... (CSS remains unchanged) ... */
         * {
             margin: 0;
             padding: 0;
@@ -480,9 +481,21 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="email">Email Address *</label>
-                        <input type="email" id="email" name="email" required>
+    <label for="email">Email Address *</label>
+    
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                {% if category == 'error' %}
+                    <div class="error-message" style="display: block; margin: 0 0 10px 0; padding: 0.5rem; font-size: 0.9rem;">
+                        {{ message }}
                     </div>
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    <input type="email" id="email" name="email" required>
+</div>
 
                     <div class="form-group">
                         <label for="phone">Phone Number *</label>
@@ -553,11 +566,9 @@
                         <label for="voterRegion">Voting Region *</label>
                         <select id="voterRegion" name="voterRegion" required>
                             <option value="">Select Your Voting Region</option>
-                            <option value="north-district">North District</option>
-                            <option value="south-district">South District</option>
-                            <option value="east-district">East District</option>
-                            <option value="west-district">West District</option>
-                            <option value="central-district">Central District</option>
+                            {% for region in available_regions %}
+                                <option value="{{ region }}">{{ region }}</option>
+                            {% endfor %}
                         </select>
                     </div>
 

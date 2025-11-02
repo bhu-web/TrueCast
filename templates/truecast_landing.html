@@ -520,6 +520,22 @@
       .loading-dots span:nth-child(2) {
         animation-delay: -0.16s;
       }
+      .user-greeting {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .user-greeting a {
+        background: #ff6b6b;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        text-decoration: none;
+        color: white;
+        transition: background 0.3s ease;
+      }
+      .user-greeting a:hover {
+        background: #ff4747;
+      }
 
       @keyframes bounce {
         0%,
@@ -603,14 +619,21 @@
           <a href="{{ url_for('help_page') }}">Help</a>
         </div>
         <div class="nav-actions">
-          <div class="language-selector">
-            <select id="language">
-              <option value="en">English</option>
-              <option value="hi">हिंदी</option>
-              <option value="es">Español</option>
-              <option value="fr">Français</option>
-            </select>
-          </div>
+          {% if logged_in %}
+            <div class="user-greeting">
+                <span>Hello, {{ full_name | default('Voter') }}!</span>
+                <a href="{{ url_for('logout') }}">Logout</a>
+            </div>
+          {% else %}
+            <div class="language-selector">
+              <select id="language">
+                <option value="en">English</option>
+                <option value="hi">हिंदी</option>
+                <option value="es">Español</option>
+                <option value="fr">Français</option>
+              </select>
+            </div>
+          {% endif %}
         </div>
       </nav>
     </header>
@@ -625,10 +648,13 @@
               secure, transparent, and accessible voting platform
             </p>
             <div class="cta-buttons">
-              <a href="/voter-register" class="btn btn-primary"
-                >Register to Vote</a
-              >
-              <a href="/voter-login" class="btn btn-secondary">Voter Login</a>
+              {% if not logged_in %}
+                <a href="/voter-register" class="btn btn-primary">Register to Vote</a>
+                <a href="/voter-login" class="btn btn-secondary">Voter Login</a>
+              {% else %}
+                <a href="/voting-dashboard" class="btn btn-primary">Go to Voting Dashboard</a>
+                <a href="{{ url_for('logout') }}" class="btn btn-secondary">Logout</a>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -791,7 +817,6 @@
       </div>
     </footer>
 
-    <!-- Chatbot Container -->
     <div class="chatbot-container">
       <button class="chatbot-button" id="chatbot-toggle">💬</button>
       <div class="chatbot-window" id="chatbot-window">

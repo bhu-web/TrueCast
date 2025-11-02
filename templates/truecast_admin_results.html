@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TRUECAST - Admin Live Results</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: #f5f7fa;
+        min-height: 100vh;
+      }
+      .header {
+        background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+        color: white;
+        padding: 1rem 0;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      .header-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .logo {
+        font-size: 1.5rem;
+        font-weight: bold;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 2rem auto;
+        padding: 20px;
+      }
+      .results-card {
+        background: white;
+        border-radius: 15px;
+        padding: 2rem;
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+        margin-bottom: 2rem;
+      }
+      h2 {
+        color: #2c3e50;
+        margin-bottom: 1rem;
+        font-size: 1.8rem;
+      }
+      .race-section {
+        border-top: 1px solid #e9ecef;
+        padding: 1.5rem 0;
+      }
+      .race-title {
+        color: #3498db;
+        font-size: 1.4rem;
+        margin-bottom: 1rem;
+        text-transform: capitalize;
+      }
+      .candidate-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.5rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+        font-size: 1.1rem;
+      }
+      .candidate-name {
+        font-weight: 600;
+        flex: 1;
+        text-transform: capitalize;
+      }
+      .vote-count {
+        font-weight: bold;
+        color: #27ae60;
+        background: #e6ffed;
+        padding: 0.3rem 0.8rem;
+        border-radius: 5px;
+      }
+      .status-badge {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-weight: 600;
+        margin-left: 1rem;
+      }
+      .status-active {
+        background: #d1fae5;
+        color: #059669;
+      }
+      .status-ended {
+        background: #fef2f2;
+        color: #b91c1c;
+      }
+      .status-published {
+        background: #ffe6b6; /* Orange/Yellow for published results */
+        color: #ff9800;
+      }
+      .btn {
+        padding: 0.75rem 1.5rem;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+        margin-top: 1rem;
+      }
+      .btn-publish {
+        background: #27ae60;
+        color: white;
+      }
+      .btn-default {
+        background: #3498db;
+        color: white;
+      }
+      .alert-box {
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        font-weight: 500;
+      }
+      .alert-live {
+        background: #fff3e0;
+        border: 1px solid #ff9800;
+        color: #ff9800;
+      }
+      .alert-ended {
+        background: #e3f2fd;
+        border: 1px solid #3498db;
+        color: #3498db;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="header-content">
+        <div class="logo">🗳️ TRUECAST Admin Results</div>
+        <a href="/admin-dashboard" class="btn" style="background: white; color: #3498db;">← Back to Dashboard</a>
+      </div>
+    </div>
+
+    <div class="container">
+      <div class="results-card">
+        <h2>
+          {{ election_title }}
+          <span class="status-badge {% if is_published %}status-published{% elif is_active %}status-active{% else %}status-ended{% endif %}">
+            {% if is_published %}PUBLISHED{% elif is_active %}LIVE{% else %}ENDED{% endif %}
+          </span>
+        </h2>
+        
+        {% if is_active %}
+          <div class="alert-box alert-live">
+            This is the **LIVE** vote count. Results are preliminary and not yet certified.
+          </div>
+        {% elif not is_published %}
+          <div class="alert-box alert-ended">
+            Election is **ENDED**. These are the final, uncertified results. Please review and certify before publishing.
+          </div>
+        {% else %}
+          <div class="alert-box alert-ended" style="background: #e6ffed; border-color: #27ae60; color: #27ae60;">
+            Results have been **PUBLISHED** to the public voter page.
+          </div>
+        {% endif %}
+        
+        <p style="color: #7f8c8d; margin-bottom: 2rem;">
+  Tally of **{{ total_votes_in_election }}** total votes recorded for this election.
+</p>
+        {% if results %}
+          {% for race_slug, candidates in results.items() %}
+            <div class="race-section">
+              <h3 class="race-title">{{ race_slug | replace('-', ' ') }}</h3>
+              
+              {% set total_votes_in_race = candidates.values() | sum %}
+              
+              {% for candidate_slug, count in candidates.items() %}
+                {% set percentage = (count / total_votes_in_race * 100) | round(1) if total_votes_in_race > 0 else 0 %}
+                <div class="candidate-row">
+                  <span class="candidate-name">{{ candidate_slug | replace('-', ' ') }}</span>
+                  <span style="width: 100px; text-align: right; color: #7f8c8d;">{{ percentage }}%</span>
+                  <span class="vote-count">{{ count }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% endfor %}
+        {% else %}
+          <div style="text-align: center; padding: 3rem; background: #f8f8f8; border-radius: 10px;">
+            <p style="color: #e74c3c; font-size: 1.2rem;">No votes have been cast yet for this election.</p>
+          </div>
+        {% endif %}
+        
+        {% if not is_active and not is_published and election_id != 'N/A' %}
+          <form method="POST" action="/admin/publish-results/{{ election_id }}" style="display:inline;">
+            <button type="submit" class="btn btn-publish" onclick="return confirm('Certify and PUBLISH these final results to the public voter page? This action is public.')">
+              Certify & Publish Results
+            </button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </body>
+</html>

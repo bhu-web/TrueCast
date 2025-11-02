@@ -244,6 +244,10 @@
         background: #d1fae5;
         color: #059669;
       }
+      .status-ended {
+        background: #fef2f2;
+        color: #b91c1c;
+      }
       .election-header {
         display: flex;
         justify-content: space-between;
@@ -284,6 +288,23 @@
         gap: 1rem;
         margin-top: 1.5rem;
       }
+      .election-list-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 0;
+        border-bottom: 1px solid #f1f3f4;
+      }
+      .election-list-card:last-child {
+        border-bottom: none;
+      }
+      .election-list-info h4 {
+        margin: 0;
+        color: #2c3e50;
+      }
+      .election-list-info small {
+        color: #7f8c8d;
+      }
     </style>
   </head>
   <body>
@@ -317,7 +338,6 @@
     </div>
 
     <div class="container">
-      <!-- Overview Tab -->
       <div class="tab-content active" id="overview">
         <div class="stats-overview">
           <div class="stat-card">
@@ -328,12 +348,12 @@
           <div class="stat-card">
             <div class="stat-header"><span class="stat-icon">🗳️</span></div>
             <div class="stat-value">{{ total_votes_cast }}</div>
-            <div class="stat-label">Total Votes Cast</div>
+            <div class="stat-label">Total Votes Cast (All Elections)</div>
           </div>
           <div class="stat-card">
             <div class="stat-header"><span class="stat-icon">📊</span></div>
             <div class="stat-value">{{ turnout | round(2) }}%</div>
-            <div class="stat-label">Turnout Rate</div>
+            <div class="stat-label">Overall Turnout Rate</div>
           </div>
           <div class="stat-card">
             <div class="stat-header"><span class="stat-icon">⛓️</span></div>
@@ -372,7 +392,6 @@
         </div>
       </div>
 
-      <!-- Voter Management Tab -->
       <div class="tab-content" id="voters">
         <div class="management-header">
           <h2>Voter Management</h2>
@@ -390,6 +409,7 @@
                 <th>Voter ID</th>
                 <th>Name</th>
                 <th>Email</th>
+                <th>Region</th>
                 <th>Status</th>
                 <th>Registration Date</th>
               </tr>
@@ -400,6 +420,7 @@
                 <td>{{ voter.voter_id }}</td>
                 <td>{{ voter.firstName }} {{ voter.lastName }}</td>
                 <td>{{ voter.email or 'N/A' }}</td>
+                <td>{{ voter.voterRegion or 'N/A' }}</td>
                 <td>
                   <span class="status-badge status-active"
                     >{{ voter.status or 'Active' }}</span
@@ -412,7 +433,7 @@
               </tr>
               {% else %}
               <tr>
-                <td colspan="5">No voters found.</td>
+                <td colspan="6">No voters found.</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -420,36 +441,94 @@
         </div>
       </div>
 
-      <!-- Elections Tab -->
       <div class="tab-content" id="elections">
         <div class="management-header">
           <h2>Election Management</h2>
-          <a href="#" class="btn btn-success">Create New Election</a>
+          <a href="/admin/create-election" class="btn btn-success">Create New Election</a>
         </div>
+        
+        <div class="data-table">
+          <table class="table" id="electionTable">
+            <thead>
+              <tr>
+                <th>Election Title</th>
+                <th>ID</th>
+                <th>Status</th>
+                <th>Start Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for election in elections %}
+              <tr>
+                <td>{{ election.title }}</td>
+                <td>{{ election.id }}</td>
+                <td>
+                  <span class="status-badge {% if election.status == 'Active' %}status-active{% elif election.published_results %}status-published{% else %}status-ended{% endif %}">
+                    {% if election.published_results %}Published{% else %}{{ election.status }}{% endif %}
+                  </span>
+                </td>
+                <td>{{ election.startDate.split('T')[0] }}</td>
+                <td>
+                  {% if election.status == 'Active' %}
+                    <a href="/admin/results?election_id={{ election.id }}" class="btn btn-primary btn-sm">View Live Results</a>
+                    <form method="POST" action="/admin/end-election/{{ election.id }}" style="display:inline; margin-left: 5px;">
+                      <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to END the {{ election.title }} election? This cannot be undone.')">
+                        End Election
+                      </button>
+                    </form>
+                  {% elif not election.published_results %}
+                    <a href="/admin/results?election_id={{ election.id }}" class="btn btn-primary btn-sm">Review Final Results</a>
+                    <form method="POST" action="/admin/publish-results/{{ election.id }}" style="display:inline; margin-left: 5px;">
+                      <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Certify and PUBLISH results for {{ election.title }}? This action is public.')">
+                        Publish Results
+                      </button>
+                    </form>
+                  {% else %}
+                    <a href="/admin/results?election_id={{ election.id }}" class="btn btn-primary btn-sm">View Published Results</a>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="5">No elections found.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        
+        {% if active_election %}
+        <h3 style="margin-top: 3rem; color: #2c3e50;">Active Election Overview</h3>
         <div class="election-card">
           <div class="election-header">
-            <h3 class="election-title">2025 General Election</h3>
-            <span class="election-status election-active">Active</span>
+            <h3 class="election-title">{{ active_election.title }}</h3>
+            <span class="election-status election-active">{{ active_election.status }}</span>
           </div>
           <div class="election-details">
             <div>
               <div class="election-detail-value">{{ total_votes_cast }}</div>
-              <div class="election-detail-label">Total Votes</div>
-            </div>
-            <div>
-              <div class="election-detail-value">{{ turnout | round(2) }}%</div>
-              <div class="election-detail-label">Turnout Rate</div>
+              <div class="election-detail-label">Total Votes Cast (System)</div>
             </div>
             <div>
               <div class="election-detail-value">{{ total_voters }}</div>
               <div class="election-detail-label">Eligible Voters</div>
             </div>
+            <div>
+              <div class="election-detail-value">{{ active_election.endDate.split('T')[0] }}</div>
+              <div class="election-detail-label">Closing Date</div>
+            </div>
           </div>
           <div class="election-actions">
-            <a href="/results" class="btn btn-primary">View Live Results</a>
-            <button class="btn btn-danger">End Election</button>
-          </div>
+    <a href="/admin/results" class="btn btn-primary">View Live Results</a> 
+    <form method="POST" action="/admin/end-election/{{ active_election.id }}" style="display:inline;">
+        <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure you want to END the {{ active_election.title }} election? This cannot be undone.')">
+            End Election
+        </button>
+    </form>
+</div>
         </div>
+        {% endif %}
       </div>
     </div>
 
