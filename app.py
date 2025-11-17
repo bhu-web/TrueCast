@@ -307,7 +307,7 @@ def voter_login():
     if request.method == 'POST':
         data = request.get_json()
         voter_id_or_email = data.get('voterId')
-        
+        input_pin = data.get('backupPin')
         voters = load_voters()
         authenticated_voter = None
 
@@ -320,6 +320,18 @@ def voter_login():
         # --- End JSON Database Lookup Logic ---
 
         if authenticated_voter:
+            stored_pin = authenticated_voter.get('backupPin')
+            if input_pin:
+                if input_pin != stored_pin:
+                    # Authentication failure: PIN mismatch
+                    return jsonify({"success": False, "error": "Invalid PIN provided. Access denied."}), 401
+            # If input_pin is None, this means a different auth method was used, 
+            # and the frontend is responsible for signaling final success.
+            # We only proceed to session creation if PIN was valid OR not required by the request.
+            # Since the frontend will send the PIN ONLY on PIN verification, we check here:
+            elif data.get('action') == 'verify_pin':
+                # If the frontend signals PIN verification but didn't send a PIN
+                 return jsonify({"success": False, "error": "PIN is required for backup login."}), 400
             # Login successful: Establish session
             session['logged_in'] = True # CRITICAL: Set the logged_in flag
             session['voter_id'] = authenticated_voter['voter_id']
@@ -330,8 +342,9 @@ def voter_login():
             last_name = authenticated_voter.get('lastName', '')
             
             if first_name or last_name:
+                clean_full_name = f"{first_name} {last_name}".strip()
                 # Construct name from the standard fields found in your JSON data
-                session['full_name'] = f"{first_name} {last_name}".strip()
+                session['full_name'] = clean_full_name
             else:
                 # Fallback to 'Full Name' key (from OCR) or the default 'Voter' string
                 session['full_name'] = authenticated_voter.get('Full Name', 'Voter')
@@ -342,6 +355,8 @@ def voter_login():
             # The frontend is expecting a 'redirect' URL in the JSON response
             next_url = request.args.get('next') or url_for('voting_dashboard')
             return jsonify({"success": True, "message": "Login successful!", "redirect": next_url})
+        else:
+            return jsonify({"success": False, "error": "Voter ID or Email not found."}), 404
     
     # Render the login page (including the success message from registration redirect)
     success_msg = request.args.get('success')

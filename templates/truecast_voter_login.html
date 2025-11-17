@@ -473,7 +473,7 @@
             <form id="loginForm">
                 <div class="form-group">
                     <label for="voterId">Voter ID or Email</label>
-                    <input type="text" id="voterId" name="voterId" required placeholder="Enter your Voter ID or email">
+                    <input type="text" id="voterId" name="voterId" required placeholder="Enter your Voter ID or email" oninput="checkIdentity()">
                 </div>
 
                 <div class="auth-methods">
@@ -603,6 +603,27 @@
             geo: false,
             blockchain: false
         };
+        
+        // --- NEW: Function to check Identity on input ---
+        function checkIdentity() {
+            const voterIdInput = document.getElementById('voterId').value.trim();
+            
+            // Simple client-side check for presence of data
+            if (voterIdInput.length > 5) { 
+                if (!authenticationSteps.identity) {
+                    authenticationSteps.identity = true;
+                    updateStep('identity', 'completed'); 
+                    document.getElementById('verificationSteps').style.display = 'block'; // Show progress steps
+                }
+            } else {
+                if (authenticationSteps.identity) {
+                    authenticationSteps.identity = false;
+                    updateStep('identity', 'active');
+                }
+            }
+        }
+        // --- END NEW FUNCTION ---
+
 
         function selectAuthMethod(method) {
             // Clear previous selections
@@ -617,12 +638,23 @@
             event.currentTarget.classList.add('active');
             document.getElementById(`${method}-content`).classList.add('active');
             selectedAuthMethod = method;
+            hideMessage(); // Clear any previous errors
+
+            // Reset MFA status visual if changing methods
+            document.getElementById('pin-status').innerHTML = '';
+            document.getElementById('biometric-status').innerHTML = '';
+            document.getElementById('otp-status').innerHTML = '';
+            authenticationSteps.mfa = false;
         }
 
         function sendOTP() {
             const voterId = document.getElementById('voterId').value;
             if (!voterId) {
                 showMessage('Please enter your Voter ID or email first.', 'error');
+                return;
+            }
+            if (!authenticationSteps.identity) {
+                showMessage('Please enter a valid Voter ID or email.', 'error');
                 return;
             }
 
@@ -634,7 +666,7 @@
                 document.getElementById('otpInputSection').style.display = 'block';
                 sendBtn.innerHTML = 'Resend OTP';
                 sendBtn.disabled = false;
-                showMessage('OTP sent to your registered phone and email.', 'success');
+                showMessage('OTP sent to your registered phone and email.', 'loginSuccessMessage');
             }, 2000);
         }
 
@@ -685,59 +717,124 @@
             }, 3000);
         }
 
+        // truecast_voter_login.html (Updated verifyPIN function)
+
         function verifyPIN() {
+            const voterId = document.getElementById('voterId').value;
             const pin = document.getElementById('backupPin').value;
+            if (!voterId) {
+                showMessage('Please enter your Voter ID or email first.', 'error');
+                return;
+            }
             if (pin.length !== 6) {
                 showMessage('Please enter your 6-digit PIN.', 'error');
                 return;
             }
 
-            // Simulate PIN verification (in a real app, this would be an AJAX call)
-            setTimeout(() => {
-                document.getElementById('pin-status').innerHTML = '✅';
-                showMessage('PIN verified successfully!', 'loginSuccessMessage');
-                completeAuthStep('mfa');
-            }, 1000);
+            // --- AJAX Call for Backend PIN Verification & Login ---
+            const pinBtn = document.querySelector('#pin-content button');
+            pinBtn.innerHTML = '<span class="loading-spinner"></span> Verifying...';
+            pinBtn.disabled = true;
+
+            // We send the PIN and voter ID for the backend to handle verification AND session creation.
+            // We also pass the window.location.search to include the ?next= parameter
+            fetch('/voter-login' + window.location.search, { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    voterId: voterId, 
+                    backupPin: pin,
+                })
+            })
+            .then(response => {
+                // Check for non-JSON responses (like 500 errors)
+                if (!response.ok) {
+                    throw new Error('Server returned an error: ' + response.status);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    // *** THIS IS THE FIX ***
+                    // The server has successfully authenticated AND logged us in.
+                    // We must redirect now, not show another button.
+                    
+                    document.getElementById('pin-status').innerHTML = '✅';
+                    showMessage(data.message + ' Redirecting...', 'loginSuccessMessage');
+                    
+                    // Manually update visual steps for user feedback
+                    document.getElementById('verificationSteps').style.display = 'block';
+                    updateStep('identity', 'completed');
+                    updateStep('mfa', 'completed');
+                    updateStep('geo', 'completed');
+                    updateStep('blockchain', 'completed');
+
+                    // Perform the redirect from the server's response
+                    setTimeout(() => {
+                        window.location.href = data.redirect; 
+                    }, 1000);
+                    
+                } else {
+                // FAILURE PATH
+                    document.getElementById('pin-status').innerHTML = '❌';
+                    showMessage(data.error || 'PIN verification failed. Try again.', 'error');
+                    authenticationSteps.mfa = false;
+                }
+            })
+            .catch(error => {
+                console.error('PIN Verification Error:', error);
+                // This catch will also handle the JSON parse error if server sends HTML/500
+                showMessage('Network error during PIN verification. Check server console.', 'error');
+                document.getElementById('pin-status').innerHTML = '❌';
+            })
+            .finally(() => {
+                // Re-enable button only on failure (on success, we're redirecting)
+                if (document.getElementById('pin-status').innerHTML !== '✅') {
+                    pinBtn.innerHTML = 'Verify PIN';
+                    pinBtn.disabled = false;
+                }
+            });
         }
 
         function completeAuthStep(stepType) {
             authenticationSteps[stepType] = true;
             
+            // When MFA is complete (via PIN/OTP), immediately mark ALL steps complete
+            // and bypass the slow simulation timeouts to enable the button.
             if (stepType === 'mfa') {
-                // Start verification steps
+                // Ensure the progress steps are visible
                 document.getElementById('verificationSteps').style.display = 'block';
                 
-                // Identity verification
-                setTimeout(() => {
-                    updateStep('step1', 'completed');
-                    authenticationSteps.identity = true;
-                }, 500);
+                // 1. Mark Identity (step1) complete (Redundant but safe)
+                authenticationSteps.identity = true; 
+                updateStep('identity', 'completed');
+                
+                // 2. Mark MFA (step2) complete
+                updateStep('mfa', 'completed'); 
 
-                // Geo-location verification
-                setTimeout(() => {
-                    updateStep('step2', 'completed');
-                    updateStep('step3', 'active');
-                    verifyGeoLocation();
-                }, 1500);
-
-                // Blockchain authentication
-                setTimeout(() => {
-                    updateStep('step3', 'completed');
-                    updateStep('step4', 'active');
-                    verifyBlockchain();
-                }, 3000);
-
-                // Complete login
-                setTimeout(() => {
-                    updateStep('step4', 'completed');
-                    authenticationSteps.blockchain = true;
-                    // Automatically enable the final access button
-                    completeLogin(); 
-                }, 5000);
+                // 3. Mark Geo-location (step3) complete (Simulated success)
+                authenticationSteps.geo = true;
+                updateStep('geo', 'completed');
+                
+                // 4. Mark Blockchain (step4) complete (Simulated success)
+                authenticationSteps.blockchain = true;
+                updateStep('blockchain', 'completed');
+                
+                // Immediately enable the final access button
+                completeLogin(); 
             }
         }
 
-        function updateStep(stepId, status) {
+        function updateStep(stepName, status) {
+            let stepId;
+            if (stepName === 'identity') { stepId = 'step1'; }
+            else if (stepName === 'mfa') { stepId = 'step2'; }
+            else if (stepName === 'geo') { stepId = 'step3'; }
+            else if (stepName === 'blockchain') { stepId = 'step4'; }
+            else { return; }
+            
             const step = document.getElementById(stepId);
             step.className = `step ${status}`;
             
@@ -747,17 +844,7 @@
                 step.querySelector('.step-icon').textContent = '⏳';
             }
         }
-
-        function verifyGeoLocation() {
-            // Simulate successful geo-location verification
-            authenticationSteps.geo = true;
-        }
-
-        function verifyBlockchain() {
-            // Simulate blockchain verification
-            authenticationSteps.blockchain = true;
-        }
-
+        
         function completeLogin() {
             if (Object.values(authenticationSteps).every(step => step === true)) {
                 document.getElementById('loginBtn').style.display = 'block';
@@ -791,52 +878,67 @@
         }
 
         // Form submission (CRITICAL FIX)
-        document.getElementById('loginForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            // Check if all authentication steps (simulated) are complete
-            if (Object.values(authenticationSteps).every(step => step === true)) {
-                // --- NEW: AJAX Call to the Flask backend for final session creation ---
-                const voterId = document.getElementById('voterId').value;
-                const loginBtn = document.getElementById('loginBtn');
-                
-                loginBtn.innerHTML = '<span class="loading-spinner"></span> Accessing...';
-                loginBtn.disabled = true;
+        // truecast_voter_login.html (Inside loginForm submit handler)
 
-                // Send the POST request to the Flask backend
-                fetch('/voter-login' + window.location.search, { // Include ?next= parameter
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ voterId: voterId })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showMessage(data.message + ' Redirecting...', 'loginSuccessMessage');
-                        // CRITICAL FIX: Use the 'redirect' URL returned by Flask
-                        setTimeout(() => {
-                            window.location.href = data.redirect; 
-                        }, 1000);
-                    } else {
-                        showMessage(data.error || 'Authentication failed on server.', 'error');
-                        loginBtn.innerHTML = 'Access Voting Dashboard';
-                        loginBtn.disabled = false;
-                    }
-                })
-                .catch(error => {
-                    console.error('Login error:', error);
-                    showMessage('Network error during login.', 'error');
-                    loginBtn.innerHTML = 'Access Voting Dashboard';
-                    loginBtn.disabled = false;
-                });
-                // --- END NEW AJAX Logic ---
+document.getElementById('loginForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    // Check if all authentication steps (simulated) are complete
+    if (Object.values(authenticationSteps).every(step => step === true)) {
+        
+        const voterId = document.getElementById('voterId').value;
+        const loginBtn = document.getElementById('loginBtn');
+        const pin = document.getElementById('backupPin').value; // Get the PIN value
+        
+        let payload = { voterId: voterId };
 
-            } else {
-                showMessage('Please complete all authentication steps.', 'error');
+        // CRITICAL FIX: Include PIN in the final payload ONLY if the PIN method was selected.
+        if (selectedAuthMethod === 'pin') {
+            payload.backupPin = pin;
+        }
+        
+        loginBtn.innerHTML = '<span class="loading-spinner"></span> Accessing...';
+        loginBtn.disabled = true;
+
+        // Send the POST request to the Flask backend
+        fetch('/voter-login' + window.location.search, { // Include ?next= parameter
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload) // Use the payload that includes the PIN conditionally
+        })
+        .then(response => {
+            // Check if the response is valid JSON (i.e., not HTML error)
+            if (!response.ok || response.headers.get('Content-Type').indexOf('application/json') === -1) {
+                // If the server returned HTML (e.g., a 500 error page), we throw an error.
+                throw new Error('Server returned unexpected non-JSON response.');
             }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                showMessage(data.message + ' Redirecting...', 'loginSuccessMessage');
+                setTimeout(() => {
+                    window.location.href = data.redirect; 
+                }, 1000);
+            } else {
+                showMessage(data.error || 'Authentication failed on server.', 'error');
+                loginBtn.innerHTML = 'Access Voting Dashboard';
+                loginBtn.disabled = false;
+            }
+        })
+        .catch(error => {
+            console.error('Login error:', error);
+            showMessage('Network error during login. Check server console for 500 status.', 'error');
+            loginBtn.innerHTML = 'Access Voting Dashboard';
+            loginBtn.disabled = false;
         });
+
+    } else {
+        showMessage('Please complete all authentication steps.', 'error');
+    }
+});
 
         // Auto-focus on voter ID field
         document.getElementById('voterId').focus();
@@ -864,8 +966,12 @@
                 }
             });
         });
+        
+        // Initialize identity status on load
+        window.onload = function() {
+            // Check identity status immediately on load (if user data is pre-filled/remembered)
+            checkIdentity(); 
+        };
     </script>
 </body>
 </html>
-
-
