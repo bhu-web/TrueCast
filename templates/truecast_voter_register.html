@@ -306,33 +306,53 @@
             margin-top: 0.2rem;
         }
         
+        /* UPDATED: Clean Results Display */
         .ocr-results-display {
             display: none;
-            margin-top: 2rem;
-            padding: 2rem;
-            background: #f8f9fa;
-            border-radius: 15px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            margin-top: 1.5rem;
+            padding: 1.5rem;
+            background: #f0fdf4;
+            border: 2px solid #22c55e;
+            border-radius: 12px;
         }
 
         .ocr-results-display h3 {
-            font-size: 1.5rem;
-            color: #2c3e50;
+            font-size: 1.2rem;
+            color: #15803d;
             margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }
 
-        .ocr-results-display pre {
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            background: white;
-            padding: 1rem;
-            border-radius: 10px;
-            border: 1px solid #e9ecef;
+        .ocr-field-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .ocr-field-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #bbf7d0;
+            font-size: 0.95rem;
+        }
+        
+        .ocr-field-item:last-child {
+            border-bottom: none;
+        }
+        
+        .ocr-label {
+            font-weight: 600;
+            color: #166534;
+        }
+        
+        .ocr-value {
+            color: #14532d;
             font-family: monospace;
-            font-size: 0.9rem;
-            line-height: 1.4;
-            max-height: 300px;
-            overflow-y: auto;
+            text-align: right;
+            max-width: 60%;
         }
 
         .ocr-processing {
@@ -455,56 +475,56 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="firstName">First Name *</label>
-                            <input type="text" id="firstName" name="firstName" required aria-describedby="firstName-error">
+                            <input type="text" id="firstName" name="firstName" required aria-describedby="firstName-error" value="{{ parsed_data.get('firstName', '') }}">
                         </div>
                         <div class="form-group">
                             <label for="lastName">Last Name *</label>
-                            <input type="text" id="lastName" name="lastName" required>
+                            <input type="text" id="lastName" name="lastName" required value="{{ parsed_data.get('lastName', '') }}">
                         </div>
                     </div>
 
                     <div class="form-row">
                         <div class="form-group">
                             <label for="dateOfBirth">Date of Birth *</label>
-                            <input type="date" id="dateOfBirth" name="dateOfBirth" required>
+                            <input type="date" id="dateOfBirth" name="dateOfBirth" required value="{{ parsed_data.get('dateOfBirth', '') }}">
                         </div>
                         <div class="form-group">
                             <label for="gender">Gender</label>
                             <select id="gender" name="gender">
                                 <option value="">Select Gender</option>
-                                <option value="male">Male</option>
-                                <option value="female">Female</option>
-                                <option value="other">Other</option>
-                                <option value="prefer-not-to-say">Prefer not to say</option>
+                                <option value="male" {% if parsed_data.get('gender') == 'male' %}selected{% endif %}>Male</option>
+                                <option value="female" {% if parsed_data.get('gender') == 'female' %}selected{% endif %}>Female</option>
+                                <option value="other" {% if parsed_data.get('gender') == 'other' %}selected{% endif %}>Other</option>
+                                <option value="prefer-not-to-say" {% if parsed_data.get('gender') == 'prefer-not-to-say' %}selected{% endif %}>Prefer not to say</option>
                             </select>
                         </div>
                     </div>
 
                     <div class="form-group">
-    <label for="email">Email Address *</label>
-    
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            {% for category, message in messages %}
-                {% if category == 'error' %}
-                    <div class="error-message" style="display: block; margin: 0 0 10px 0; padding: 0.5rem; font-size: 0.9rem;">
-                        {{ message }}
+                        <label for="email">Email Address *</label>
+                        
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                            {% if messages %}
+                                {% for category, message in messages %}
+                                    {% if category == 'error' %}
+                                        <div class="error-message" style="display: block; margin: 0 0 10px 0; padding: 0.5rem; font-size: 0.9rem;">
+                                            {{ message }}
+                                        </div>
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                        {% endwith %}
+                        <input type="email" id="email" name="email" required value="{{ parsed_data.get('email', '') }}">
                     </div>
-                {% endif %}
-            {% endfor %}
-        {% endif %}
-    {% endwith %}
-    <input type="email" id="email" name="email" required>
-</div>
 
                     <div class="form-group">
                         <label for="phone">Phone Number *</label>
-                        <input type="tel" id="phone" name="phone" required placeholder="+1 (555) 123-4567">
+                        <input type="tel" id="phone" name="phone" required placeholder="+1 (555) 123-4567" value="{{ parsed_data.get('phone', '') }}">
                     </div>
 
                     <div class="form-group">
                         <label for="address">Residential Address *</label>
-                        <textarea id="address" name="address" rows="3" required placeholder="Street address, City, State, ZIP Code"></textarea>
+                        <textarea id="address" name="address" rows="3" required placeholder="Street address, City, State, ZIP Code">{{ parsed_data.get('address', '') }}</textarea>
                     </div>
 
                     <div class="security-info">
@@ -522,15 +542,15 @@
                             <label for="idType">ID Document Type *</label>
                             <select id="idType" name="idType" required>
                                 <option value="">Select ID Type</option>
-                                <option value="passport">Passport</option>
-                                <option value="drivers-license">Driver's License</option>
-                                <option value="national-id">National ID Card</option>
-                                <option value="voter-id">Voter ID Card</option>
+                                <option value="passport" {% if parsed_data.get('idType') == 'passport' %}selected{% endif %}>Passport</option>
+                                <option value="drivers-license" {% if parsed_data.get('idType') == 'drivers-license' %}selected{% endif %}>Driver's License</option>
+                                <option value="national-id" {% if parsed_data.get('idType') == 'national-id' %}selected{% endif %}>National ID Card</option>
+                                <option value="voter-id" {% if parsed_data.get('idType') == 'voter-id' %}selected{% endif %}>Voter ID Card</option>
                             </select>
                         </div>
                         <div class="form-group">
                             <label for="idNumber">ID Number *</label>
-                            <input type="text" id="idNumber" name="idNumber" required>
+                            <input type="text" id="idNumber" name="idNumber" required value="{{ parsed_data.get('idNumber', '') }}">
                         </div>
                     </div>
 
@@ -539,7 +559,7 @@
                             <div class="upload-icon">📄</div>
                             <h4>Upload ID Document</h4>
                             <p>Click to upload front and back of your ID document</p>
-                            <input type="file" id="idDocument" name="idDocument" accept="image/*,.pdf" style="display: none;" multiple>
+                            <input type="file" id="idDocument" name="idDocument" accept="image/*,.pdf" style="display: none;">
                         </div>
                         <div class="verification-status status-pending" id="doc-status">
                             <span>⏳</span>
@@ -552,22 +572,20 @@
                         <p>Processing document with OCR...</p>
                     </div>
 
-                    {% if ocr_results %}
-                    <div class="ocr-results-display" id="ocrResultsDisplay" style="display:block;">
-                    <h3>Extracted Document Data</h3>
-                    {% for text in ocr_results %}
-                        <pre>{{ text }}</pre>
-                    {% endfor %}
+                    <!-- UPDATED: Results Section -->
+                    <div class="ocr-results-display" id="ocrResultsDisplay">
+                        <h3><span>🔍</span> Extracted Data</h3>
+                        <ul class="ocr-field-list" id="ocrResultsContent">
+                            <!-- Dynamic Items will be inserted here -->
+                        </ul>
                     </div>
-                    {% endif %}
-
 
                     <div class="form-group">
                         <label for="voterRegion">Voting Region *</label>
                         <select id="voterRegion" name="voterRegion" required>
                             <option value="">Select Your Voting Region</option>
                             {% for region in available_regions %}
-                                <option value="{{ region }}">{{ region }}</option>
+                                <option value="{{ region }}" {% if parsed_data.get('voterRegion') == region %}selected{% endif %}>{{ region }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -857,71 +875,173 @@
             }, 2500);
         }
 
-        // Document upload handler
+        // --- *** UPDATED: DOCUMENT UPLOAD HANDLER (Clean UI) *** ---
         document.getElementById('idDocument').addEventListener('change', function(e) {
             const statusDiv = document.getElementById('doc-status');
             const ocrProcessing = document.getElementById('ocrProcessing');
             
-            if (e.target.files.length > 0) {
-                statusDiv.innerHTML = '<span>⏳</span><span>Processing documents...</span>';
-                statusDiv.className = 'verification-status status-pending';
-                
-                // Show OCR processing
-                ocrProcessing.style.display = 'block';
-                
-                const formData = new FormData();
-        for (let i = 0; i < e.target.files.length; i++) {
-            formData.append('idDocument', e.target.files[i]);
-        }
+            if (e.target.files.length === 0) {
+                return; // No file selected
+            }
+            
+            statusDiv.innerHTML = '<span>⏳</span><span>Uploading document...</span>';
+            statusDiv.className = 'verification-status status-pending';
+            ocrProcessing.style.display = 'block';
+            
+            const formData = new FormData();
+            formData.append('idDocument', e.target.files[0]);
 
-        fetch('/api/ocr_process', { method: 'POST', body: formData })
+            fetch('/api/ocr_process', { 
+                method: 'POST', 
+                body: formData 
+            })
             .then(response => {
-                if (response.redirected) {
-                    window.location.href = response.url; // follow redirect
-                } else {
-                    return response.json().then(data => {
-                        throw new Error(data.error || 'OCR failed');
+                if (!response.ok) {
+                    return response.json().then(err => { 
+                        throw new Error(err.error || `Server error: ${response.status}`);
                     });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    statusDiv.innerHTML = '<span>✅</span><span>Document Processed Successfully</span>';
+                    statusDiv.className = 'verification-status status-verified';
+                    ocrProcessing.style.display = 'none';
+                    
+                    // --- NEW: Clean Display Logic ---
+                    const ocrDisplay = document.getElementById('ocrResultsDisplay');
+                    const ocrContent = document.getElementById('ocrResultsContent');
+                    
+                    // Clear previous content
+                    ocrContent.innerHTML = '';
+                    
+                    // Only show relevant fields if they exist
+                    const fieldsToShow = ['Full Name', 'Date of Birth', 'ID Number', 'Address', 'docType'];
+                    const parsed = data.parsed_data;
+                    
+                    fieldsToShow.forEach(field => {
+                        if (parsed[field] && parsed[field] !== 'Not Found') {
+                            const li = document.createElement('li');
+                            li.className = 'ocr-field-item';
+                            li.innerHTML = `
+                                <span class="ocr-label">${field}:</span>
+                                <span class="ocr-value">${parsed[field]}</span>
+                            `;
+                            ocrContent.appendChild(li);
+                        }
+                    });
+                    
+                    ocrDisplay.style.display = 'block';
+                    // --- End Clean Display Logic ---
+                    
+                    prefillForm(data.parsed_data);
+                    runGeoVerification(data.parsed_data);
+                    
+                    nextStep();
+                    
+                } else {
+                    throw new Error(data.error || 'OCR processing failed.');
                 }
             })
             .catch(err => {
-                statusDiv.innerHTML = '<span>❌</span><span>OCR failed</span>';
+                statusDiv.innerHTML = `<span>❌</span><span>${err.message}</span>`;
                 statusDiv.className = 'verification-status status-failed';
                 ocrProcessing.style.display = 'none';
-                alert(err.message);
             });
-    }
-});
+        });
 
-        function displayOcrResults(results) {
-            const ocrResultsDisplay = document.getElementById('ocrResultsDisplay');
-            const ocrResultsContent = document.getElementById('ocrResultsContent');
+        /**
+         * NEW: Pre-fills the form with data from OCR.
+         */
+        function prefillForm(data) {
+            if (data['Full Name'] && data['Full Name'] !== 'Not Found') {
+                const nameParts = data['Full Name'].split(' ');
+                const firstName = nameParts[0];
+                const lastName = nameParts.slice(1).join(' ');
+                
+                document.getElementById('firstName').value = firstName;
+                document.getElementById('lastName').value = lastName;
+            }
             
-            ocrResultsContent.innerHTML = '';
+            if (data['Date of Birth'] && data['Date of Birth'] !== 'Not Found') {
+                try {
+                    const dateStr = data['Date of Birth'].replace(/\//g, '-');
+                    const parts = dateStr.split('-');
+                    if (parts.length === 3) {
+                         const isoDate = `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+                         document.getElementById('dateOfBirth').value = isoDate;
+                    }
+                } catch (e) {
+                    console.warn("Could not parse DOB: ", data['Date of Birth']);
+                }
+            }
             
-            results.forEach((result, index) => {
-                const resultDiv = document.createElement('div');
-                resultDiv.style.marginBottom = '1.5rem';
-                resultDiv.innerHTML = `
-                    <h4 style="color: #3498db; margin-bottom: 0.5rem;">${result.filename}</h4>
-                    <pre>${result.content}</pre>
-                `;
-                ocrResultsContent.appendChild(resultDiv);
-            });
+            if (data['ID Number'] && data['ID Number'] !== 'Not Found') {
+                document.getElementById('idNumber').value = data['ID Number'];
+            }
             
-            ocrResultsDisplay.style.display = 'block';
+            if (data['Address'] && data['Address'] !== 'Not Found') {
+                document.getElementById('address').value = data['Address'];
+            }
         }
+
+        /**
+         * NEW: Runs client-side geo-verification for immediate user feedback.
+         */
+        function runGeoVerification(data) {
+            const ocrAddress = (data['Address'] || 'Not Found').toLowerCase();
+            if (ocrAddress === 'not found') {
+                showMessage('Could not read address from ID. Please enter manually.', 'error');
+                return;
+            }
+
+            const regionSelect = document.getElementById('voterRegion');
+            
+            const regionMap = {
+                'rajasthan': 'West District',
+                'pali': 'West District',
+                'new york': 'East District',
+                'ny': 'East District',
+                'california': 'West District',
+                'ca': 'West District',
+                'texas': 'South District',
+                'tx': 'South District',
+                'montana': 'North District',
+                'mt': 'North District',
+                'kansas': 'Central District',
+                'ks': 'Central District',
+            };
+            
+            let expectedRegion = 'All Regions';
+            for (const keyword in regionMap) {
+                if (ocrAddress.includes(keyword)) {
+                    expectedRegion = regionMap[keyword];
+                    break;
+                }
+            }
+
+            regionSelect.value = expectedRegion;
+            
+            if (expectedRegion !== 'All Regions') {
+                showMessage(`Based on your ID, we've pre-selected your voting region as: ${expectedRegion}`, 'success');
+            } else {
+                showMessage("Could not automatically determine your region from your address. Please select it manually.", "error");
+            }
+        }
+        // --- END NEW FUNCTIONS ---
 
         // Form submission
         document.getElementById('voterRegistrationForm').addEventListener('submit', function(e) {
-            // FIX: Only prevent the default action if validation fails.
             if (!validateStep(4)) {
                 e.preventDefault();
                 return; 
             }
             
-            // Allow the form to submit to the server to save data (POST to /voter-register)
-            // The Flask route will handle the final redirect/message.
+            // FIX: Add loading state to button
+            const btn = document.getElementById('submitBtn');
+            btn.innerHTML = '<span class="spinner" style="display:inline-block; width:15px; height:15px; border-width:2px; vertical-align:middle;"></span> Processing...';
+            btn.disabled = true;
         });
 
         // Auto-format phone number
@@ -933,23 +1053,30 @@
             e.target.value = value;
         });
 
-        // Initialize
         updateProgressBar();
 
-        // Accessibility features
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && !e.target.matches('textarea')) {
                 e.preventDefault();
                 if (currentStep < totalSteps) {
                     nextStep();
                 } else {
-                    // Check validation before submitting
                     if (validateStep(4)) {
                         document.getElementById('submitBtn').click();
                     }
                 }
             }
         });
+        
+        window.onload = function() {
+            const firstName = document.getElementById('firstName').value;
+            if (firstName) {
+                const serverError = document.querySelector('.error-message');
+                if (serverError && serverError.textContent.trim() !== '') {
+                    serverError.style.display = 'block';
+                }
+            }
+        }
     </script>
 </body>
 </html>

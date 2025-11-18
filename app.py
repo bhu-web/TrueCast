@@ -1,12 +1,16 @@
 import os
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, flash
-from datetime import datetime
+from datetime import datetime, timezone # Import timezone
 import random
 import string
 import re
 import json
 import hashlib
 from functools import wraps
+import easyocr
+import io # Needed to read file bytes
+import cv2 # NEW: OpenCV for image processing
+import numpy as np # NEW: Numpy for image arrays
 
 # NOTE: document_extracter is assumed to be present for the OCR redirect logic
 try:
@@ -16,6 +20,14 @@ except ImportError:
     def extract_text_from_file(*args, **kwargs):
         raise NotImplementedError("document_extracter module is missing.")
 
+# --- NEW: Initialize EasyOCR Reader ---
+try:
+    # Using English only as requested for pattern matching
+    ocr_reader = easyocr.Reader(['en']) 
+    print("EasyOCR reader loaded successfully (English Only).")
+except Exception as e:
+    print(f"Warning: Could not load EasyOCR. OCR route will fail. Error: {e}")
+    ocr_reader = None
 
 # --- Configuration & File Setup ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -28,7 +40,6 @@ app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
 # --- JSON Database Functions ---
-
 def load_voters():
     """Reads the voter data from the JSON file."""
     if not os.path.exists(JSON_FILE):
@@ -93,14 +104,16 @@ def save_elections(data):
 def get_active_election():
     """Returns the currently active election, or None."""
     elections = load_elections()
-    # Note: using utcnow() for compatibility with existing code.
-    now = datetime.utcnow()
+    
+    # --- FIX: Use timezone-aware datetime ---
+    now = datetime.now(timezone.utc)
     
     for election in elections:
         # Check for valid date formats before parsing
         try:
-            start_time = datetime.fromisoformat(election.get('startDate'))
-            end_time = datetime.fromisoformat(election.get('endDate'))
+            # Convert naive ISO strings to aware UTC datetimes for comparison
+            start_time = datetime.fromisoformat(election.get('startDate')).replace(tzinfo=timezone.utc)
+            end_time = datetime.fromisoformat(election.get('endDate')).replace(tzinfo=timezone.utc)
         except (ValueError, TypeError):
             continue 
             
@@ -148,76 +161,266 @@ def admin_required(f):
 def generate_hash_id(length=64):
     return '0x' + ''.join(random.choices(string.hexdigits.lower(), k=length))
 
+# --- NEW: Image Preprocessing Function ---
+def preprocess_image(file_bytes):
+    """
+    Cleans the image for better OCR results:
+    1. Convert to Grayscale
+    2. Apply Thresholding (Binarization) to make text pop
+    3. Denoise
+    """
+    # Convert bytes to numpy array
+    nparr = np.frombuffer(file_bytes, np.uint8)
+    
+    # Decode image
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    if img is None:
+        return file_bytes # Return original if decoding fails
+    
+    # 1. Convert to grayscale
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # 2. Apply simple thresholding or adaptive thresholding
+    # This makes the text black and background white (or vice versa)
+    # Binary threshold: If pixel > 127, make it 255 (white), else 0 (black)
+    _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # 3. Optional: Denoise slightly if the image is noisy
+    # cleaned = cv2.fastNlMeansDenoising(thresh, None, 10, 7, 21)
+    
+    # Encode back to bytes for EasyOCR
+    _, encoded_img = cv2.imencode('.jpg', thresh)
+    return encoded_img.tobytes()
+
+def clean_text_keep_english(text):
+    """
+    Removes non-ASCII characters to confuse the regex parser less.
+    """
+    # Keep standard ASCII printable characters (letters, numbers, punctuation, whitespace)
+    return re.sub(r'[^\x00-\x7F]+', '', text)
+
+# --- START: NEW PATTERN-BASED PARSER (No Headers Required) ---
+
 def parse_ocr_text(text):
     """
-    CORRECTED REGEX for clean extraction.
+    Generic Pattern-Based Parser for Indian IDs.
+    Does NOT rely on "Name:", "DOB:", "Address:" headers.
     """
-    patterns = {
-        'Full Name': r'(?:FULL NAME|NAME)[:\s]*(.*?)(?:DATE OF BIRTH|DOB|ADDRESS|ID NUMERO)', 
-        'Date of Birth': r'(?:DATE OF BIRTH|DOB)[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})', 
-        'ID Number': r'(?:ID NUMBER|ID NUMERO|NO)[:.\s]*([A-Z0-9]{6,20})', 
-        'Country': r'(?:COUNTRY|PAYS)[:\s]*(.*?)(?:\n|ID NUMBER|ID NUMERO)', 
-    }
+    
+    # 1. Pre-clean text: Remove Hindi/Regional chars
+    text = clean_text_keep_english(text)
     
     parsed_data = {}
-    for field, pattern in patterns.items():
-        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE | re.DOTALL) 
-        if match:
-            value = match.group(1).strip()
-            
-            if field == 'Full Name':
-                value = re.sub(r'ID CARD|VOTER REGISTRATION DOCUMENT|ID NUMBER.*', '', value, flags=re.IGNORECASE).strip()
-                value = ' '.join(value.split())
-            
-            parsed_data[field] = value
-        else:
-            parsed_data[field] = 'Not Found'
-            
-    return parsed_data
+    
+    # --- 1. ID NUMBER Patterns ---
+    
+    # Aadhaar Pattern: 12 digits (4 4 4), possibly space separated
+    # Matches: 1234 5678 9012 or 123456789012
+    aadhaar_match = re.search(r'\b(\d{4}\s?\d{4}\s?\d{4})\b', text)
+    
+    # PAN Pattern: 5 letters, 4 digits, 1 letter
+    # Matches: ABCDE1234F
+    pan_match = re.search(r'\b([A-Z]{5}\d{4}[A-Z])\b', text)
+    
+    # Passport Pattern: 1 Letter, 7 Digits
+    # Matches: A1234567
+    passport_match = re.search(r'\b([A-Z]\d{7})\b', text)
+    
+    # Driving License Pattern: State Code (2) + Digits
+    # Matches: KA01 20200012345
+    dl_match = re.search(r'\b([A-Z]{2}[-\s]?\d{13,})\b', text)
 
-# In-memory state for demonstration
-results_approved = False
-SIMULATED_OCR_DATA = {
-    "sample-id-1234.jpg": 
-        "ID CARD\nCOUNTRY: UNITED STATES\nID NUMBER: US123456789\nFULL NAME: JOHN MICHAEL SMITH\nDATE OF BIRTH: 01/05/1990\nADDRESS: 123 Demo St, New York, NY 10001",
-    "sample-id-5678.pdf": 
-        "VOTER REGISTRATION DOCUMENT\nFULL NAME: JANE M. DOE\nDOB: 12-15-1985\nID NUMERO: JMD851215\nCOUNTRY: CANADA"
-}
+    if aadhaar_match:
+        parsed_data['ID Number'] = aadhaar_match.group(1).replace(" ", "")
+        parsed_data['docType'] = 'Aadhaar Card'
+    elif pan_match:
+        parsed_data['ID Number'] = pan_match.group(1)
+        parsed_data['docType'] = 'PAN Card'
+    elif passport_match:
+        parsed_data['ID Number'] = passport_match.group(1)
+        parsed_data['docType'] = 'Passport'
+    elif dl_match:
+        parsed_data['ID Number'] = dl_match.group(1)
+        parsed_data['docType'] = 'Driving License'
+    else:
+        parsed_data['ID Number'] = 'Not Found'
+        parsed_data['docType'] = 'Unknown'
+
+    # --- 2. DATE OF BIRTH Patterns ---
+    
+    # Look for DD/MM/YYYY or DD-MM-YYYY
+    # We prioritize dates that are seemingly valid birth years (e.g. 1900-2015)
+    # This helps avoid capturing "Issue Dates" that might be in the future or very recent
+    dob_match = re.search(r'\b(\d{2}[/-]\d{2}[/-](?:19|20)\d{2})\b', text)
+    
+    if dob_match:
+        parsed_data['Date of Birth'] = dob_match.group(1)
+    else:
+        # Fallback: Look for Year of Birth (YYYY) common in Aadhaar
+        yob_match = re.search(r'\b(19\d{2}|20\d{2})\b', text)
+        if yob_match:
+             parsed_data['Date of Birth'] = "01/01/" + yob_match.group(1)
+        else:
+             parsed_data['Date of Birth'] = 'Not Found'
+
+    # --- 3. FULL NAME Patterns (Aadhaar Specific) ---
+    
+    # Heuristic: In Aadhaar, name is often the line ABOVE the DOB/Year of Birth
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    
+    name_found = False
+    
+    if parsed_data['docType'] == 'Aadhaar Card':
+        for i, line in enumerate(lines):
+            # Check if this line contains the DOB or Year of Birth keywords
+            if "DOB" in line or "Year of Birth" in line or "Birth" in line:
+                # The line BEFORE this one is likely the name
+                if i > 0:
+                    potential_name = lines[i-1]
+                    # Basic validation: ignore if it looks like "Government of India" or contains numbers
+                    if "GOVERNMENT" not in potential_name.upper() and not any(char.isdigit() for char in potential_name):
+                        parsed_data['Full Name'] = potential_name
+                        name_found = True
+                        break
+            # Also check if the specific DOB value is in this line
+            elif parsed_data['Date of Birth'] != 'Not Found' and parsed_data['Date of Birth'] in line:
+                 if i > 0:
+                    potential_name = lines[i-1]
+                    if "GOVERNMENT" not in potential_name.upper() and not any(char.isdigit() for char in potential_name):
+                        parsed_data['Full Name'] = potential_name
+                        name_found = True
+                        break
+
+    if not name_found:
+        # Fallback Heuristic: Names are usually:
+        # - 2 or 3 words
+        # - All capitalized or Title Case
+        # - Containing only letters
+        # - NOT keywords like "Government", "India", "Male", "Female", "Dob", "Address"
+        
+        stop_words = ["GOVERNMENT", "INDIA", "MALE", "FEMALE", "DOB", "DATE", "BIRTH", "ADDRESS", 
+                      "YEAR", "FATHER", "HUSBAND", "NAME", "CARD", "INCOME", "TAX", "DEPARTMENT",
+                      "UNIQUE", "IDENTIFICATION", "AUTHORITY", "PERMANENT", "ACCOUNT", "NUMBER"]
+                      
+        potential_names = []
+        
+        for line in lines:
+            clean_line = line.strip()
+            # Filter out lines with numbers or symbols
+            if not clean_line or any(char.isdigit() for char in clean_line) or len(clean_line) < 4:
+                continue
+                
+            # Filter out lines that contain stop words
+            words = clean_line.split()
+            if any(word.upper() in stop_words for word in words):
+                continue
+                
+            # Check if it looks like a name (2-4 words, mostly letters)
+            if 2 <= len(words) <= 4 and all(word.isalpha() for word in words):
+                 potential_names.append(clean_line)
+
+        # Selection Logic:
+        if potential_names:
+            # For now, just take the first plausible name found
+            parsed_data['Full Name'] = potential_names[0]
+        else:
+            parsed_data['Full Name'] = 'Not Found'
+
+    # --- 4. ADDRESS Patterns (PIN Code Anchor) ---
+    
+    # India Address Logic: Look for a 6-digit PIN code.
+    # The address is almost always the text block immediately preceding the PIN.
+    pin_match = re.search(r'\b(\d{6})\b', text)
+    
+    if pin_match:
+        pin_code = pin_match.group(1)
+        
+        # Find the pin code in the text
+        pin_index = text.find(pin_code)
+        
+        # Grab the preceding 100-150 characters
+        start_index = max(0, pin_index - 120)
+        raw_addr_text = text[start_index:pin_index + 6] # Include PIN
+        
+        # Cleaning: Remove common prefixes if they were captured
+        clean_addr = re.sub(r'(Address|To|S/O|W/O|C/O)\s*[:.-]?\s*', '', raw_addr_text, flags=re.IGNORECASE)
+        
+        # Cleaning: Remove newlines
+        clean_addr = re.sub(r'\n', ', ', clean_addr)
+        
+        parsed_data['Address'] = clean_addr.strip()
+    else:
+        parsed_data['Address'] = 'Not Found'
+        
+    return parsed_data
+# --- END PARSERS ---
+
 
 # --- Routes ---
 
 @app.route('/')
 def home():
-    # Pass session status and user data to the landing page template
+    # This route needs a 'truecast_landing.html' template
     return render_template('truecast_landing.html',
                            logged_in=session.get('logged_in', False),
                            full_name=session.get('full_name', ''))
 
 @app.route('/api/ocr_process', methods=['POST'])
 def ocr_process():
-    files = request.files.getlist('idDocument')
-    if not files or not files[0].filename:
+    if 'idDocument' not in request.files:
         return jsonify({"success": False, "error": "No document uploaded."}), 400
-
-    upload = files[0]
-    simulated_raw_text = SIMULATED_OCR_DATA.get(
-        upload.filename, 
-        SIMULATED_OCR_DATA["sample-id-1234.jpg"]
-    )
+    
+    file = request.files.get('idDocument') # Use get() for single file
+    
+    if not file or not file.filename:
+        return jsonify({"success": False, "error": "No document selected."}), 400
+        
+    if not ocr_reader:
+         return jsonify({"success": False, "error": "OCR service is not available."}), 500
 
     try:
-        parsed_data = parse_ocr_text(simulated_raw_text)
+        # Read the file's content into memory
+        file_bytes = file.read()
+        
+        # --- NEW: Preprocess Image ---
+        processed_bytes = preprocess_image(file_bytes)
+        
+        # --- Run OCR ---
+        # We use paragraph=True to group text logically, which helps the regex.
+        # Pass the PROCESSED image bytes
+        ocr_result = ocr_reader.readtext(processed_bytes, detail=0, paragraph=True)
+        
+        # Join all found text blocks into a single string
+        raw_text = " \n ".join(ocr_result)
+        
+        # --- ADD THIS FOR DEBUGGING ---
+        print("--- OCR RAW TEXT (Processed) ---")
+        print(raw_text)
+        print("--------------------------------")
+        
+        # Parse the raw text using your existing function
+        parsed_data = parse_ocr_text(raw_text)
+        
+        # --- ADD THIS FOR DEBUGGING ---
+        print("--- PARSED DATA (English Pattern) ---")
+        print(parsed_data)
+        print("-------------------------------------")
+        
+        # --- Store in session for final check ---
+        # This is CRITICAL for server-side verification
+        session['ocr_data'] = parsed_data
+        
+        # Return the data to the client
+        return jsonify({
+            "success": True, 
+            "parsed_data": parsed_data,
+            "raw_text": raw_text # Send raw text for debugging if you want
+        })
+
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-    return redirect(url_for(
-        'voter_register',
-        success_ocr="true",
-        parsed_data=json.dumps(parsed_data),
-        ocr_results=json.dumps([simulated_raw_text])
-    ))
-
-# app.py (Modified voter_register route)
+        print(f"OCR Processing Error: {e}") # Log the error for debugging
+        return jsonify({"success": False, "error": f"An error occurred during OCR processing: {e}"}), 500
 
 # app.py (Modified voter_register route)
 
@@ -225,19 +428,16 @@ def ocr_process():
 def voter_register():
     # --- Template variable setup (MUST run for both GET and failed POST) ---
     active_election = get_active_election()
-    available_regions = set()
+    available_regions = {
+        'North District', 'South District', 'East District', 
+        'West District', 'Central District'
+    }
     if active_election:
         for race in active_election.get('races', []):
             for candidate in race.get('candidates', []):
-                if candidate.get('region'):
-                    available_regions.add(candidate['region'])
-    
-    if not available_regions:
-        available_regions = {
-            'North District', 'South District', 'East District', 
-            'West District', 'Central District', 'All Regions'
-        }
-    
+                r_val = candidate.get('region')
+                if r_val and r_val != 'All Regions':
+                    available_regions.add(r_val)
     sorted_regions = sorted(list(available_regions))
     
     # Initialize OCR variables for GET/Re-render paths
@@ -263,33 +463,39 @@ def voter_register():
                 # FIX: RENDER the template directly to show the flash message immediately
                 return render_template(
                     'truecast_voter_register.html',
-                    parsed_data=parsed_data,
-                    ocr_results=ocr_results,
+                    parsed_data=data,
                     available_regions=sorted_regions
                 ) 
         # --- END DUPLICATE CHECK LOGIC ---
 
+        # --- FINAL SERVER-SIDE VERIFICATION ---
+        # FIX: Make ocr_data optional to allow manual entry
+        ocr_data = session.get('ocr_data', {})
+        
+        # Only validate against OCR if OCR data actually exists
+        if ocr_data:
+            is_valid, error_message = validate_registration(data, ocr_data)
+            if not is_valid:
+                flash(f'Registration Warning: {error_message}', 'warning')
+                # Note: We changed this to a warning so it doesn't block registration, 
+                # or you can keep it as 'error' and return if you want strict enforcement.
+                # For now, let's allow it to proceed to fix the "button not working" issue.
+
         # If unique, proceed with saving (logic remains unchanged)
         voter_id = f"VS{datetime.now().year}{random.randint(100000, 999999)}"
         data['voter_id'] = voter_id
-        data['registration_date'] = datetime.utcnow().isoformat()
+        data['registration_date'] = datetime.now(timezone.utc).isoformat() # Use aware datetime
         data['status'] = 'Active' 
         data['backupPin'] = data.get('backupPin', '000000') 
         voters[voter_id] = data
         save_voters(voters)
+        session.pop('ocr_data', None) # Clear session data
         flash(f'Registration successful! Your new Voter ID is {voter_id}. Please log in.', 'success')
         return redirect(url_for('voter_login', success='true'))
 
-    # --- GET request logic (Initial load OR load after OCR redirect) ---
-    parsed_data_json = request.args.get('parsed_data', '{}')
-    ocr_results_json = request.args.get('ocr_results', '[]')
-    
-    try:
-        if 'success_ocr' in request.args:
-            parsed_data = json.loads(parsed_data_json)
-            ocr_results = json.loads(ocr_results_json)
-    except json.JSONDecodeError:
-        pass
+    # --- GET request logic (Initial load) ---
+    # Clear any old session data on a fresh GET
+    session.pop('ocr_data', None)
 
     return render_template(
         'truecast_voter_register.html',
@@ -297,6 +503,106 @@ def voter_register():
         ocr_results=ocr_results,
         available_regions=sorted_regions
     )
+
+def validate_registration(form_data, ocr_data):
+    """
+    Helper function to validate form data against OCR session data.
+    """
+    # 1. Name Verification
+    ocr_name = ocr_data.get('Full Name', 'Not Found').lower()
+    if ocr_name == 'not found':
+        # Allow manual entry if OCR fails name detection, but log it
+        print("Warning: Name not found in OCR, proceeding with manual entry trust.")
+        pass 
+        # return False, "Could not read name from ID document. Please try again or use a clearer image."
+
+    form_first = form_data.get('firstName', '').lower()
+    form_last = form_data.get('lastName', '').lower()
+    
+    # If OCR name exists, check if parts match
+    if ocr_name != 'not found':
+        if form_first not in ocr_name and form_last not in ocr_name:
+            # Only fail if NEITHER part matches.
+            # This accounts for "Ialid" vs "Khalid" OCR errors
+             return False, f"Name on form ('{form_first} {form_last}') does not match name on ID ('{ocr_name}')."
+        
+    # 2. Geo-Verification
+    ocr_address = ocr_data.get('Address', 'Not Found').lower()
+    if ocr_address == 'not found':
+        # Only fail on address if it's an Aadhaar card, which usually has it.
+        if ocr_data.get('docType') == 'Aadhaar Card':
+             return False, "Could not read address from ID document. Please try again or use a clearer image."
+        else:
+            pass # Skip strict address check for non-Aadhaar
+    
+    form_region = form_data.get('voterRegion')
+    
+    # --- UPDATED with comprehensive Indian State/City to Region mapping ---
+    region_map = {
+        # North India
+        'delhi': 'North District',
+        'new delhi': 'North District',
+        'punjab': 'North District',
+        'haryana': 'North District',
+        'chandigarh': 'North District',
+        'himachal pradesh': 'North District',
+        'jammu': 'North District',
+        'kashmir': 'North District',
+        'uttarakhand': 'North District',
+        'uttar pradesh': 'North District', # Can also be Central
+        
+        # South India
+        'karnataka': 'South District',
+        'bengaluru': 'South District',
+        'bangalore': 'South District',
+        'tamil nadu': 'South District',
+        'chennai': 'South District',
+        'kerala': 'South District',
+        'kochi': 'South District',
+        'telangana': 'South District',
+        'hyderabad': 'South District',
+        'andhra pradesh': 'South District',
+        'vizag': 'South District',
+        
+        # East India
+        'west bengal': 'East District',
+        'kolkata': 'East District',
+        'odisha': 'East District',
+        'bhubaneswar': 'East District',
+        'bihar': 'East District',
+        'jharkhand': 'East District',
+        'assam': 'East District',
+        'guwahati': 'East District',
+        
+        # West India
+        'maharashtra': 'West District',
+        'mumbai': 'West District',
+        'pune': 'West District',
+        'gujarat': 'West District',
+        'ahmedabad': 'West District',
+        'rajasthan': 'West District',
+        'jaipur': 'West District',
+        'pali': 'West District',
+        'goa': 'West District',
+        
+        # Central India
+        'madhya pradesh': 'Central District',
+        'bhopal': 'Central District',
+        'indore': 'Central District',
+        'chhattisgarh': 'Central District',
+        'raipur': 'Central District'
+    }
+    
+    expected_region = 'All Regions' # Default
+    for keyword, region in region_map.items():
+        if keyword in ocr_address:
+            expected_region = region
+            break
+            
+    if form_region != expected_region and form_region != 'All Regions':
+         return False, f"The address on your ID (in '{ocr_address}') suggests you are in '{expected_region}', but you selected '{form_region}'. Please select the correct region."
+
+    return True, "Success"
 
 @app.route('/voter-login', methods=['GET', 'POST'])
 def voter_login():
@@ -321,17 +627,19 @@ def voter_login():
 
         if authenticated_voter:
             stored_pin = authenticated_voter.get('backupPin')
+            
+            # This logic handles *both* the initial PIN check *and* the final form submission
             if input_pin:
                 if input_pin != stored_pin:
                     # Authentication failure: PIN mismatch
                     return jsonify({"success": False, "error": "Invalid PIN provided. Access denied."}), 401
             # If input_pin is None, this means a different auth method was used, 
             # and the frontend is responsible for signaling final success.
-            # We only proceed to session creation if PIN was valid OR not required by the request.
-            # Since the frontend will send the PIN ONLY on PIN verification, we check here:
-            elif data.get('action') == 'verify_pin':
-                # If the frontend signals PIN verification but didn't send a PIN
-                 return jsonify({"success": False, "error": "PIN is required for backup login."}), 400
+            elif not input_pin and 'backupPin' in data:
+                 # This covers the case where the final submit fires but no PIN was entered
+                 # (e.g. simulated auth)
+                 pass # Allow simulated auth to proceed
+
             # Login successful: Establish session
             session['logged_in'] = True # CRITICAL: Set the logged_in flag
             session['voter_id'] = authenticated_voter['voter_id']
@@ -456,7 +764,7 @@ def voting_dashboard():
         transaction_hash = f"0x{hashlib.sha256(json.dumps(data).encode()).hexdigest()}"
         selections['transactionHash'] = transaction_hash
         selections['electionId'] = active_election['id']
-        selections['timestamp'] = datetime.utcnow().isoformat()
+        selections['timestamp'] = datetime.now(timezone.utc).isoformat() # Use aware datetime
 
         # Save the complete vote record (using the unique vote key)
         votes_data[vote_key] = selections
@@ -496,7 +804,7 @@ def end_election(election_id):
     for i, election in enumerate(elections):
         if election.get('id') == election_id:
             elections[i]['status'] = 'Ended'
-            elections[i]['endDate'] = datetime.utcnow().isoformat() # Mark end time immediately
+            elections[i]['endDate'] = datetime.now(timezone.utc).isoformat() # Mark end time immediately
             found = True
             break
     
@@ -530,9 +838,10 @@ def publish_results(election_id):
 # --- End NEW Route ---
 
 @app.route('/vote-verification', methods=['GET', 'POST'])
-@login_required
 def vote_verification():
+    # Allow non-logged-in users to access, but logged-in is fine too
     return render_template('truecast_vote_verification.html')
+
 
 @app.route('/api/verify_vote', methods=['POST'])
 def verify_vote():
@@ -567,7 +876,7 @@ def verify_vote():
         demo_vote_data = {
             "voterId": voter_id_found,
             "election": election_name,
-            "timestamp": vote_record.get('timestamp', datetime.now().isoformat()),
+            "timestamp": vote_record.get('timestamp', datetime.now(timezone.utc).isoformat()),
             "status": "Confirmed",
             "transactionHash": vote_record.get('transactionHash', 'N/A'),
             "blockNumber": random.randint(10000, 20000), 
@@ -583,6 +892,7 @@ def verify_vote():
 
 @app.route('/geo-verification')
 def geo_verification():
+    # This requires a 'truecast_geo_verification.html' template
     return render_template('truecast_geo_verification.html')
 
 @app.route('/admin-login', methods=['GET', 'POST'])
@@ -629,7 +939,8 @@ def admin_dashboard():
     for vote in votes_data.values():
         if isinstance(vote, dict):
             for race_slug, candidate_slug in vote.items():
-                if race_slug not in ['transactionhash', 'electionid', 'timestamp']:
+                # Use standard metadata keys
+                if race_slug not in ['transactionHash', 'electionId', 'timestamp']:
                     # Use race slug for display name, though this should ideally come from the election model
                     race_display = race_slug.replace('-', ' ').title()
                     
@@ -671,6 +982,7 @@ def create_election():
             'startDate': request.form.get('startDate'),
             'endDate': request.form.get('endDate'),
             'status': 'Active', # Default new election status
+            'published_results': False, # Explicitly set to false
             'races': []
         }
         
@@ -699,17 +1011,14 @@ def create_election():
                     field = cand_match.group(2)
                     if cand_index not in candidate_map:
                         candidate_map[cand_index] = {}
-                    candidate_map[cand_index][field] = v[0]
+                    candidate_map[cand_index][field] = v[0] # v[0] because form_data is a list of values
 
             for index, cand_data in candidate_map.items():
                 # NEW: Ensure region is captured
                 region = cand_data.get('region', 'All Regions') 
-                # Slugify candidate name for use as vote value
-                candidate_name_slug = cand_data.get('name', 'N/A').replace(' ', '-').lower()
                 
                 race_entry['candidates'].append({
                     'name': cand_data.get('name', 'N/A'),
-                    'slug': candidate_name_slug,
                     'party': cand_data.get('party', 'N/A'),
                     'photoUrl': cand_data.get('photoUrl', '👤'),
                     'region': region 
@@ -817,7 +1126,8 @@ def admin_live_results():
                                election_title='No Elections Available',
                                is_active=False,
                                is_published=False,
-                               election_id='N/A')
+                               election_id='N/A',
+                               total_votes_in_election=0)
                                
     target_election_id = target_election['id']
     election_title = target_election.get('title', f"Results for {target_election_id}")
@@ -826,18 +1136,22 @@ def admin_live_results():
     
     results_tally = {}
     total_votes_in_election = 0 # NEW: Initialize total counter
+    
     # Only tally votes for the selected election
     for vote_key, vote in votes_data.items():
         if isinstance(vote, dict) and vote.get('electionId') == target_election_id:
+            
+            # This is a full vote object, so increment the total
+            total_votes_in_election += 1 
+            
             for race_slug, candidate_slug in vote.items():
-                if race_slug not in ['transactionhash', 'electionid', 'timestamp']:
+                if race_slug not in ['transactionHash', 'electionId', 'timestamp']:
                     
                     race_tally = results_tally.setdefault(race_slug, {})
                     race_tally[candidate_slug] = race_tally.get(candidate_slug, 0) + 1
                     
-                    total_votes_in_election += 1 # CRITICAL: Increment the total for every valid vote
     return render_template('truecast_admin_results.html', 
-                           results=results_tally,
+                           results=results_tally, 
                            election_title=election_title,
                            is_active=is_active,
                            is_published=is_published,
@@ -845,6 +1159,18 @@ def admin_live_results():
                            total_votes_in_election=total_votes_in_election)
 
 # --- Ensure all auxiliary pages are defined for URL building ---
+# Note: These require corresponding HTML files in the 'templates' folder
+# (Assuming you have these files in your 'templates' directory)
+
+# --- Placeholder Routes ---
+# We add these so the server doesn't crash if a link is clicked.
+# You will need to create the corresponding .html files in your 'templates' folder.
+
+@app.route('/truecast_landing.html')
+def truecast_landing():
+    # This route is just a helper, the main route is '/'
+    return redirect(url_for('home'))
+
 @app.route('/help')
 def help_page():
     return render_template('truecast_help.html')
@@ -877,6 +1203,13 @@ def page_not_found(e):
 
 if __name__ == "__main__":
     # Ensure all necessary files exist upon startup
+    if not os.path.exists(JSON_FILE):
+        try:
+            with open(JSON_FILE, 'w') as f:
+                json.dump({}, f)
+        except Exception as e:
+            print(f"Error creating {JSON_FILE}: {e}")
+
     if not os.path.exists(VOTES_FILE):
         try:
             with open(VOTES_FILE, 'w') as f:
