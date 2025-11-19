@@ -648,27 +648,47 @@
         }
 
         function sendOTP() {
-            const voterId = document.getElementById('voterId').value;
-            if (!voterId) {
-                showMessage('Please enter your Voter ID or email first.', 'error');
-                return;
-            }
-            if (!authenticationSteps.identity) {
-                showMessage('Please enter a valid Voter ID or email.', 'error');
-                return;
-            }
+    const voterId = document.getElementById('voterId').value.trim();
+    if (!voterId) {
+        showMessage('Please enter your Voter ID or email first.', 'error');
+        return;
+    }
+    
+    // Note: We allow sending OTP even if "identity" isn't checked locally yet,
+    // as the backend performs the definitive check.
+    
+    const sendBtn = document.getElementById('sendOtpBtn');
+    sendBtn.innerHTML = '<span class="loading-spinner"></span> Sending...';
+    sendBtn.disabled = true;
 
-            const sendBtn = document.getElementById('sendOtpBtn');
-            sendBtn.innerHTML = '<span class="loading-spinner"></span> Sending...';
-            sendBtn.disabled = true;
-
-            setTimeout(() => {
-                document.getElementById('otpInputSection').style.display = 'block';
-                sendBtn.innerHTML = 'Resend OTP';
-                sendBtn.disabled = false;
-                showMessage('OTP sent to your registered phone and email.', 'loginSuccessMessage');
-            }, 2000);
+    fetch('/api/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voterId: voterId })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('otpInputSection').style.display = 'block';
+            sendBtn.innerHTML = 'Resend OTP';
+            sendBtn.disabled = false;
+            showMessage(data.message, 'loginSuccessMessage');
+            
+            // Focus on first input box
+            setTimeout(() => document.querySelector('.otp-input').focus(), 500);
+        } else {
+            showMessage(data.error, 'error');
+            sendBtn.innerHTML = 'Send OTP';
+            sendBtn.disabled = false;
         }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showMessage('Network error sending OTP.', 'error');
+        sendBtn.innerHTML = 'Send OTP';
+        sendBtn.disabled = false;
+    });
+}
 
         function moveToNext(current, index) {
             if (current.value.length === 1) {
@@ -680,21 +700,51 @@
         }
 
         function verifyOTP() {
-            const otpInputs = document.querySelectorAll('.otp-input');
-            const otp = Array.from(otpInputs).map(input => input.value).join('');
-            
-            if (otp.length !== 6) {
-                showMessage('Please enter the complete 6-digit OTP.', 'error');
-                return;
-            }
+    const otpInputs = document.querySelectorAll('.otp-input');
+    const otp = Array.from(otpInputs).map(input => input.value).join('');
+    
+    if (otp.length !== 6) {
+        showMessage('Please enter the complete 6-digit OTP.', 'error');
+        return;
+    }
 
-            // Simulate OTP verification
+    const verifyBtn = document.querySelector('#otpInputSection .btn-primary');
+    const originalText = verifyBtn.textContent;
+    verifyBtn.innerHTML = '<span class="loading-spinner"></span> Verifying...';
+    verifyBtn.disabled = true;
+
+    fetch('/api/verify-otp-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otp: otp })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('otp-status').innerHTML = '✅';
+            showMessage(data.message, 'loginSuccessMessage');
+            
+            // Complete the MFA step visually
+            completeAuthStep('mfa');
+            
+            // If this was the final step or the only step needed, redirect
             setTimeout(() => {
-                document.getElementById('otp-status').innerHTML = '✅';
-                showMessage('OTP verified successfully!', 'loginSuccessMessage');
-                completeAuthStep('mfa');
-            }, 1000);
+                window.location.href = data.redirect;
+            }, 1500);
+        } else {
+            document.getElementById('otp-status').innerHTML = '❌';
+            showMessage(data.error, 'error');
+            verifyBtn.innerHTML = originalText;
+            verifyBtn.disabled = false;
         }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showMessage('Network error verifying OTP.', 'error');
+        verifyBtn.innerHTML = originalText;
+        verifyBtn.disabled = false;
+    });
+}
 
         function startBiometricAuth() {
             const captureDiv = document.getElementById('biometric-capture');

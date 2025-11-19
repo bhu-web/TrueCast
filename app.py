@@ -1,6 +1,6 @@
 import os
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, flash
-from datetime import datetime, timezone # Import timezone
+from datetime import datetime, timezone, timedelta # Ensure timedelta is imported
 import random
 import string
 import re
@@ -11,6 +11,12 @@ import easyocr
 import io # Needed to read file bytes
 import cv2 # NEW: OpenCV for image processing
 import numpy as np # NEW: Numpy for image arrays
+from flask_mail import Mail, Message # New import
+from dotenv import load_dotenv
+load_dotenv()
+
+print("DEBUG USER:", os.environ.get('MAIL_USERNAME'))
+print("DEBUG PASS:", os.environ.get('MAIL_PASSWORD'))
 
 # NOTE: document_extracter is assumed to be present for the OCR redirect logic
 try:
@@ -38,6 +44,116 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'a_very_secret_key_for_truecast_sessio
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+
+# --- NEW: Email Configuration ---
+# NOTE: For Gmail, you must use an "App Password", not your regular password.
+# Go to Google Account > Security > 2-Step Verification > App Passwords.
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
+app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_USERNAME', '')
+
+mail = Mail(app)
+
+# --- NEW: OTP Routes ---
+
+@app.route('/api/send-otp', methods=['POST'])
+def send_otp():
+    data = request.get_json()
+    voter_identifier = data.get('voterId') # Can be ID or Email
+    
+    if not voter_identifier:
+        return jsonify({'success': False, 'error': 'Voter ID is required.'}), 400
+
+    voters = load_voters()
+    target_voter = None
+    
+    # 1. Find the voter and their email
+    for v_id, v_data in voters.items():
+        if v_data.get('voter_id') == voter_identifier or v_data.get('email') == voter_identifier:
+            target_voter = v_data
+            break
+            
+    if not target_voter:
+        return jsonify({'success': False, 'error': 'Voter not found.'}), 404
+        
+    email = target_voter.get('email')
+    if not email:
+        return jsonify({'success': False, 'error': 'No email address linked to this voter.'}), 400
+
+    # 2. Generate 6-digit OTP
+    otp = str(random.randint(100000, 999999))
+    
+    # 3. Store OTP in session (encrypted cookie) for verification later
+    # We also store the voter_id to ensure the OTP is used for the correct user
+    session['otp'] = otp
+    session['otp_voter_id'] = target_voter['voter_id']
+    session['otp_timestamp'] = datetime.now(timezone.utc).timestamp()
+
+    # 4. Send Email
+    try:
+        msg = Message('TrueCast Login Verification', recipients=[email])
+        msg.body = f"Your One-Time Password (OTP) for TrueCast voting is: {otp}\n\nThis code expires in 5 minutes.\nDo not share this code."
+        mail.send(msg)
+        
+        # Return success (mask the email for privacy)
+        masked_email = re.sub(r'(.).*@', r'\1***@', email)
+        return jsonify({'success': True, 'message': f'OTP sent to {masked_email}'})
+        
+    except Exception as e:
+        print(f"Email error: {e}")
+        return jsonify({'success': False, 'error': 'Failed to send email. Check server logs.'}), 500
+
+@app.route('/api/verify-otp-login', methods=['POST'])
+def verify_otp_login():
+    data = request.get_json()
+    input_otp = data.get('otp')
+    
+    # 1. Check if OTP exists in session
+    stored_otp = session.get('otp')
+    stored_voter_id = session.get('otp_voter_id')
+    timestamp = session.get('otp_timestamp')
+    
+    if not stored_otp or not input_otp:
+        return jsonify({'success': False, 'error': 'Invalid request.'}), 400
+
+    # 2. Check Expiration (5 minutes)
+    if datetime.now(timezone.utc).timestamp() - timestamp > 300:
+        session.pop('otp', None)
+        return jsonify({'success': False, 'error': 'OTP has expired. Please request a new one.'}), 400
+        
+    # 3. Verify Match
+    if input_otp == stored_otp:
+        # 4. Log the user in (Same logic as voter_login)
+        voters = load_voters()
+        authenticated_voter = voters.get(stored_voter_id)
+        
+        if authenticated_voter:
+            session['logged_in'] = True
+            session['voter_id'] = authenticated_voter['voter_id']
+            session['email'] = authenticated_voter.get('email')
+            session['voter_region'] = authenticated_voter.get('voterRegion')
+            
+            first = authenticated_voter.get('firstName', '')
+            last = authenticated_voter.get('lastName', '')
+            session['full_name'] = f"{first} {last}".strip() or 'Voter'
+            
+            # Clear OTP from session
+            session.pop('otp', None)
+            session.pop('otp_voter_id', None)
+            session.pop('otp_timestamp', None)
+            
+            return jsonify({
+                'success': True, 
+                'message': 'Authentication successful!',
+                'redirect': url_for('voting_dashboard')
+            })
+    
+    return jsonify({'success': False, 'error': 'Invalid OTP.'}), 401
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 # --- JSON Database Functions ---
 def load_voters():
@@ -102,25 +218,50 @@ def save_elections(data):
         json.dump(data, f, indent=4)
 
 def get_active_election():
-    """Returns the currently active election, or None."""
+    """
+    Returns the currently active election, or None, and automatically updates
+    the status of expired elections.
+    """
     elections = load_elections()
     
-    # --- FIX: Use timezone-aware datetime ---
-    now = datetime.now(timezone.utc)
+    now = datetime.now(IST)
+    elections_changed = False
+    active_election = None
     
     for election in elections:
-        # Check for valid date formats before parsing
         try:
-            # Convert naive ISO strings to aware UTC datetimes for comparison
-            start_time = datetime.fromisoformat(election.get('startDate')).replace(tzinfo=timezone.utc)
-            end_time = datetime.fromisoformat(election.get('endDate')).replace(tzinfo=timezone.utc)
+            start_time = datetime.fromisoformat(election.get('startDate'))
+            end_time = datetime.fromisoformat(election.get('endDate'))
+            
+            # Ensure they are timezone aware (IST is defined globally)
+            if start_time.tzinfo is None: start_time = start_time.replace(tzinfo=IST)
+            if end_time.tzinfo is None: end_time = end_time.replace(tzinfo=IST)
+            
         except (ValueError, TypeError):
             continue 
-            
-        status = election.get('status', 'Active')
 
-        if status == 'Active' and start_time <= now and end_time > now:
-            return election
+        status = election.get('status', 'Active')
+        
+        # 1. Automatic End Check: If status is Active AND the end time is <= now
+        if status == 'Active' and end_time <= now:
+            election['status'] = 'Ended'
+            elections_changed = True
+            
+        # 2. Check for the truly active election
+        # Treat election as active if now is before end time
+        elif election['status'] == 'Active' and now < end_time:
+            active_election = election
+
+
+
+            # Do NOT break here. We must continue iterating to check if any earlier elections need to be marked 'Ended'.
+            
+    # Save any automatic status changes (must be done outside the loop)
+    if elections_changed:
+        save_elections(elections)
+    
+    # After checking all elections and performing automatic ends, return the true active one.
+    return active_election
     
     # Fallback to the most recent 'Active' election if the time window is missed
     for election in reversed(elections):
@@ -764,7 +905,7 @@ def voting_dashboard():
         transaction_hash = f"0x{hashlib.sha256(json.dumps(data).encode()).hexdigest()}"
         selections['transactionHash'] = transaction_hash
         selections['electionId'] = active_election['id']
-        selections['timestamp'] = datetime.now(timezone.utc).isoformat() # Use aware datetime
+        selections['timestamp'] = datetime.now(IST).isoformat() # Use aware datetime
 
         # Save the complete vote record (using the unique vote key)
         votes_data[vote_key] = selections
@@ -804,7 +945,7 @@ def end_election(election_id):
     for i, election in enumerate(elections):
         if election.get('id') == election_id:
             elections[i]['status'] = 'Ended'
-            elections[i]['endDate'] = datetime.now(timezone.utc).isoformat() # Mark end time immediately
+            elections[i]['endDate'] = datetime.now(IST).isoformat() # Mark end time immediately
             found = True
             break
     
@@ -974,17 +1115,33 @@ def create_election():
         form_data = request.form.to_dict(flat=False)
         elections = load_elections()
         
-        # Structure the data
+        # Get raw strings from form (e.g., "2025-11-18T14:00")
+        start_raw = request.form.get('startDate')
+        end_raw = request.form.get('endDate')
+        
+        # Convert naive datetime-local into proper IST-aware datetime
+        start_dt = datetime.strptime(start_raw, "%Y-%m-%dT%H:%M")
+        end_dt = datetime.strptime(end_raw, "%Y-%m-%dT%H:%M")
+
+        # Attach IST offset correctly as local time (no shifting)
+        start_dt = start_dt.replace(tzinfo=IST)
+        end_dt = end_dt.replace(tzinfo=IST)
+
+        # Always save full ISO 8601 with offset
+        start_iso = start_dt.isoformat()
+        end_iso = end_dt.isoformat()
+
         election_data = {
             'id': f"ELEC{len(elections) + 1}-{datetime.now().strftime('%Y%m%d')}",
             'title': request.form.get('electionName'),
             'description': request.form.get('electionDescription'),
-            'startDate': request.form.get('startDate'),
-            'endDate': request.form.get('endDate'),
-            'status': 'Active', # Default new election status
-            'published_results': False, # Explicitly set to false
+            'startDate': start_iso, 
+            'endDate': end_iso,
+            'status': 'Active',
+            'published_results': False,
             'races': []
         }
+
         
         # Helper to extract the index from keys like 'races[1][name]'
         race_indices = set()

@@ -643,7 +643,7 @@
             <h3>⏰ Time Remaining</h3>
             <div class="timer-display" id="electionTimer">00:00:00</div>
             <p style="color: #7f8c8d; text-align: center; font-size: 0.9rem">
-              Election ends: <span id="electionEndTime">{{ election.endDate.split('T')[0] }} at {{ election.endDate.split('T')[1].split('.')[0] }} UTC</span>
+              Election ends: <span id="electionEndTime">{{ election.endDate.split('T')[0] }} at {{ election.endDate.split('T')[1].split('.')[0] }} IST</span>
             </p>
           </div>
           {% endif %}
@@ -808,8 +808,7 @@
         const SERVER_ELECTION_ACTIVE = {{ election_active | tojson | safe }};
         const SERVER_ALL_RACE_IDS = {{ all_race_ids | tojson | safe }};
         // FIX: Ensure SERVER_ELECTION defaults to {} to prevent JSON errors on missing objects
-        const SERVER_ELECTION = {{ election | default({}) | tojson | safe }};
-
+        const SERVER_ELECTION = {{ election | default({'endDate': '2000-01-01T00:00:00+05:30'}) | tojson | safe }};
         // FIX: Ensure filtered_ballot defaults to '[]'. This is now a JSON string in JS.
         const filteredBallotJSON = {{ filtered_ballot | tojson | default('[]') | safe }}; 
         
@@ -835,18 +834,17 @@
             });
             // Ensure the end time display reflects IST
         const endTimeElement = document.getElementById('electionEndTime');
-        if (endTimeElement && SERVER_ELECTION.endDate) {
-            const utcDate = new Date(SERVER_ELECTION.endDate);
-            // Format the UTC date string explicitly for IST (UTC+5:30) display
-            const istOptions = { 
-                year: 'numeric', month: 'short', day: 'numeric', 
-                hour: '2-digit', minute: '2-digit', second: '2-digit', 
-                timeZone: 'Asia/Kolkata', hour12: true 
-            };
-            const istDateString = utcDate.toLocaleString('en-IN', istOptions);
-            endTimeElement.textContent = `${istDateString} IST`;
-        }
-        }
+        // Display Election End in IST
+if (endTimeElement && SERVER_ELECTION.endDate) {
+    const [datePartRaw] = SERVER_ELECTION.endDate.split('+'); // split off +05:30
+    const dt = new Date(datePartRaw); // creates raw time, no timezone conversion
+    endTimeElement.textContent = dt.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        dateStyle: 'medium',
+        timeStyle: 'medium'
+    }) + " IST";
+}
+
 
         // Overwrite with previous votes if available
         try {
@@ -857,7 +855,7 @@
                     votes[key] = previousVotes[key];
                 }
             });
-        } catch (e) {
+        }catch (e) {
             console.error("Could not parse previous votes from server.", e);
         }
         
@@ -1058,30 +1056,91 @@
         }
 
         function updateTimer() {
-            if (!SERVER_ELECTION_ACTIVE || !SERVER_ELECTION.endDate) return;
+    if (!SERVER_ELECTION.endDate) return;
 
-            const now = new Date().getTime();
-            const electionEnd = new Date(SERVER_ELECTION.endDate).getTime();
-            const timeLeft = electionEnd - now;
+    // Split "YYYY-MM-DDTHH:MM:SS+05:30"
+    const [datePart, offsetPart] = SERVER_ELECTION.endDate.split('+');
+
+    // Raw local datetime WITHOUT timezone conversion
+    const localTime = new Date(datePart);
+
+    // IST offset always +5:30 = +330 minutes
+    const istOffsetMs = 330 * 60 * 1000;
+
+    // Create true IST timestamp (correct direction!)
+    const electionEnd = localTime.getTime() + istOffsetMs;
+
+    const nowLocal = Date.now();
+    const timeLeft = electionEnd - nowLocal;
+
+    const timerDisplay = document.getElementById("electionTimer");
+
+    if (timeLeft <= 0 || isNaN(timeLeft)) {
+        timerDisplay.textContent = "00:00:00";
+        return;
+    }
+
+    const h = Math.floor(timeLeft / 3600000);
+    const m = Math.floor((timeLeft % 3600000) / 60000);
+    const s = Math.floor((timeLeft % 60000) / 1000);
+
+    timerDisplay.textContent =
+        `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+
+// DEBUG: Show raw timestamp on the page
+document.body.insertAdjacentHTML(
+    'beforeend',
+    `<div style="position:fixed;bottom:10px;left:10px;background:#000;color:#0f0;padding:10px;z-index:999999;font-size:14px;">
+        RAW endDate: ${SERVER_ELECTION.endDate}
+    </div>`
+);
+
+
+        // function updateTimer() {
+        //     if (!SERVER_ELECTION_ACTIVE || !SERVER_ELECTION.endDate) return;
+
+        //     const now = new Date().getTime();
+        //     const electionEnd = Date.parse(SERVER_ELECTION.endDate);
+        //     const timeLeft = electionEnd - now;
             
-            const timerDisplay = document.getElementById('electionTimer');
+        //     const timerDisplay = document.getElementById('electionTimer');
+        //     const endTimeDisplay = document.getElementById('electionEndTime');
+
+        //     // FIX: Display the End Date strictly in IST
+        //     if (endTimeDisplay) {
+        //         const dateObj = new Date(SERVER_ELECTION.endDate);
+        //         endTimeDisplay.textContent = dateObj.toLocaleString('en-IN', {
+        //             timeZone: 'Asia/Kolkata',
+        //             dateStyle: 'medium',
+        //             timeStyle: 'medium'
+        //         }) + " IST";
+        //     }
             
-            if (timeLeft <= 0) {
-                timerDisplay.textContent = '00:00:00';
-                document.querySelector('.election-status').textContent = '🔴 ENDED';
-                document.querySelector('.election-status').classList.add('inactive');
-                clearInterval(timerInterval); // Stop the timer
-                window.location.reload(); // Force reload to show ended state
-                return;
-            }
+        //     if (timeLeft <= 0 || isNaN(electionEnd)) {
+        //         timerDisplay.textContent = '00:00:00';
+        //         const statusBadge = document.querySelector('.election-status');
+        //         if(statusBadge) {
+        //             statusBadge.textContent = '🔴 ENDED';
+        //             statusBadge.classList.add('inactive');
+        //         }
+                
+        //         clearInterval(timerInterval); 
+        //         // Optional: Only reload if it was previously active to avoid infinite loops
+        //         if (document.getElementById('submitVoteBtn')) {
+        //              window.location.reload();
+        //         }
+        //         return;
+        //     }
 
-            const hours = Math.floor(timeLeft / (1000 * 60 * 60));
-            const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-            const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
+        //     const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+        //     const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+        //     const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
 
-            timerDisplay.textContent =
-                `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        }
+        //     timerDisplay.textContent =
+        //         `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        // }
         
         let timerInterval;
 
