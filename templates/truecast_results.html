@@ -163,6 +163,19 @@
     </div>
 
     <div class="container">
+        {% if published_list %}
+            <div style="margin-bottom: 2rem; padding: 1.5rem; background: #e8f5e9; border-radius: 10px; border: 1px solid #c8e6c9;">
+                <h3 style="color: #2e7d32; margin-bottom: 1rem;">View Other Published Elections:</h3>
+                <select id="election-select" onchange="window.location.href='/results?election_id=' + this.value" style="padding: 10px; border-radius: 5px; border: 1px solid #ccc; width: 100%; max-width: 400px; font-size: 1rem;">
+                    {% for pub_e in published_list %}
+                        <option value="{{ pub_e.id }}" {% if pub_e.id == current_election_id %}selected{% endif %}>
+                            {{ pub_e.title }} (Results Published: {{ pub_e.endDate.split('T')[0] }})
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        {% endif %}
+        
         {% if message %}
             <div class="alert-restricted">
                 {{ message }}

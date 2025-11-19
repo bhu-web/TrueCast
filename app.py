@@ -298,7 +298,6 @@ def get_active_election():
             active_election = election
 
 
-
             # Do NOT break here. We must continue iterating to check if any earlier elections need to be marked 'Ended'.
             
     # Save any automatic status changes (must be done outside the loop)
@@ -876,6 +875,9 @@ def voting_dashboard():
     # --- NEW: Get Active Election & Filter Ballot ---
     active_election = get_active_election()
     
+    # FIX for Problem 3: Load ALL elections
+    all_elections = load_elections()
+
     if not active_election:
         # If no active election, skip the complex logic and render the inactive state
         return render_template('truecast_voting_dashboard.html', 
@@ -886,14 +888,15 @@ def voting_dashboard():
                                election_active=False,
                                election={},              # Safe default
                                filtered_ballot=[],       # Safe default
-                               all_race_ids=[],          # Safe default
+                               all_race_ids=[],          # Safe default (The required races)
+                               all_elections=all_elections, # FIX: Passed all elections
                                previous_votes={})
                                
     # Filter the ballot based on the voter's region
     filtered_ballot = []
     
-    # Initialize as a set, then convert later
-    all_race_ids_set = set() # Use a different variable name for clarity
+    # Use this list for required votes (Fix 1)
+    final_required_races_list = []
 
     for race in active_election.get('races', []):
         race_copy = race.copy()
@@ -908,10 +911,9 @@ def voting_dashboard():
         # Only include the race if it has candidates for the voter's region
         if race_copy['candidates']:
             filtered_ballot.append(race_copy)
-            all_race_ids_set.add(race_copy['name'])
+            # FIX for Problem 1: This is the correct list of races the voter must complete
+            final_required_races_list.append(race_copy['name']) 
     
-    # Get the final list of race IDs
-    final_race_ids_list = list(all_race_ids_set)
     # --- END NEW: Get Active Election & Filter Ballot ---
 
     # ... (Rest of the logic for voters_data and votes_data remains the same) ...
@@ -936,15 +938,14 @@ def voting_dashboard():
         if vote_key in votes_data and votes_data[vote_key].get('transactionHash'):
             return jsonify({'success': False, 'error': 'Your vote has already been cast for this election.', 'transactionHash': 'ALREADY_CAST'})
 
-        # Basic check: did the user select a candidate for every race in their filtered ballot?
-        # Use the list of race IDs to check against selections
-        required_races = [race['name'] for race in filtered_ballot]
+        # FIX for Problem 1: Server-side validation must check against the required list
+        required_race_slugs = [name.replace(' ', '-').lower() for name in final_required_races_list]
         
-        for race_name in required_races:
-            # Need to convert race name to slug to check against selections dictionary
-            race_slug = race_name.replace(' ', '-').lower()
+        for race_slug in required_race_slugs:
             if not selections.get(race_slug):
-                return jsonify({'success': False, 'error': f'Please make a selection for the {race_name} race.'})
+                # Attempt to get the original race name for a better error message
+                original_race_name = next((r['name'] for r in filtered_ballot if r['name'].replace(' ', '-').lower() == race_slug), race_slug)
+                return jsonify({'success': False, 'error': f'Please make a selection for the {original_race_name} race.'})
 
         # Generate the transaction hash and add it to the vote record
         transaction_hash = f"0x{hashlib.sha256(json.dumps(data).encode()).hexdigest()}"
@@ -975,8 +976,9 @@ def voting_dashboard():
         voter_region=voter_region,
         election_active=True,
         election=active_election,
+        all_elections=all_elections, # FIX: Pass all elections for Problem 3
         filtered_ballot=filtered_ballot,
-        all_race_ids=final_race_ids_list, # Use the guaranteed list
+        all_race_ids=final_required_races_list, # FIX for Problem 1: Use the guaranteed list of required races
         has_voted=has_voted,
         previous_votes=previous_votes
     )
@@ -1095,17 +1097,29 @@ def admin_login():
             flash('Invalid admin credentials.', 'error')
     return render_template('truecast_admin_login.html')
 
-# --- Admin Dashboard Route (Modified) ---
+# --- Admin Dashboard Route (Modified to fix UnboundLocalError and Vote Count) ---
 @app.route('/admin-dashboard')
 @admin_required
 def admin_dashboard():
     voters_data = load_voters()
     votes_data = load_votes()
-    elections = load_elections() # NEW: Load all elections
+    elections = load_elections() 
 
-    # Calculate key metrics
+    # 1. FIX UnboundLocalError: Always initialize active_election
+    active_election = get_active_election()
+
+    # 2. Calculate key metrics
     total_voters = len(voters_data)
-    total_votes_cast = len(votes_data)
+    total_votes_cast = len(votes_data) # Total votes across ALL elections
+    
+    # 3. FIX Incorrect Vote Count: Calculate votes for ONLY the Active Election
+    active_election_votes = 0
+    if active_election:
+        active_election_id = active_election['id']
+        for vote in votes_data.values():
+            if isinstance(vote, dict) and vote.get('electionId') == active_election_id:
+                active_election_votes += 1
+    
     turnout = (total_votes_cast / total_voters * 100) if total_voters > 0 else 0
 
     # Get recent registrations (last 5)
@@ -1136,8 +1150,32 @@ def admin_dashboard():
                     # Increment the vote count for the candidate within that race
                     race_tally[candidate_slug] = race_tally.get(candidate_slug, 0) + 1 
     
-    # Filter for the currently active election for the Elections tab status
-    active_election = get_active_election()
+    # 1. Turnout Data (Pie Chart)
+    voted_count = total_votes_cast
+    not_voted_count = total_voters - total_votes_cast
+    
+    turnout_data = {
+        'labels': ['Votes Cast', 'Eligible Voters (Not Voted)'],
+        'data': [voted_count, not_voted_count]
+    }
+    
+    # 2. Top Race Distribution Data (Bar Chart)
+    bar_chart_data = {'labels': ['No Races'], 'datasets': []} # Added default labels
+    
+    if results:
+        # Find the race with the most candidates or highest total votes (simple: choose first one)
+        top_race_slug = next(iter(results.keys()), None)
+        
+        if top_race_slug:
+            race_data = results[top_race_slug]
+            
+            bar_chart_data['labels'] = list(race_data.keys()) # Candidate names
+            bar_chart_data['datasets'].append({
+                'label': top_race_slug, # Use the race title as the dataset label
+                'data': list(race_data.values()), # Vote counts
+                'backgroundColor': ['#3498db', '#27ae60', '#f1c40f', '#e74c3c'] 
+            })
+
 
     return render_template(
         'truecast_admin_dashboard.html',
@@ -1146,9 +1184,13 @@ def admin_dashboard():
         turnout=turnout,
         recent_registrations=recent_registrations,
         all_voters=voters_data.values(),
-        elections=elections, # NEW: Pass all elections
+        elections=elections, # NEW: Pass all elections for the management table
+        all_elections_list=elections, # FIX for Problem 2: Pass all elections for the dropdown
         active_election=active_election, # NEW: Pass active election for display
-        results=results
+        active_election_votes=active_election_votes, # FIX: Pass active election votes
+        results=results,
+        turnout_data=turnout_data,   # NEW: Pass Turnout Data
+        bar_chart_data=bar_chart_data # NEW: Pass Bar Chart Data
     )
 # --- End Admin Dashboard Route (Modified) ---
 
@@ -1244,51 +1286,46 @@ def create_election():
 
 
 # app.py (Modified results route)
+# FIX for Problem 4: Show all published elections and allow navigation
 
 @app.route('/results')
 def results():
     votes_data = load_votes()
     elections = load_elections()
+    
+    # 1. Get ALL published elections
+    # Note: Using .get() for 'published_results' in case the key is missing from old records
+    published_elections = [e for e in elections if e.get('published_results')]
+    
+    # 2. Determine which election to display
+    target_election_id = request.args.get('election_id')
+    display_election = None
+    
+    if target_election_id:
+        display_election = get_election_by_id(target_election_id)
+    
+    # Default to the most recent published one if none selected or the selected one isn't published
+    if display_election is None or not display_election.get('published_results'):
+        display_election = next((e for e in reversed(published_elections)), None)
 
-    # Priority 1: Find the most recently *published* election
-    published_election = next((e for e in reversed(elections) if e.get('published_results')), None)
-    
-    # Priority 2: Fallback to active election
-    active_election = get_active_election()
-    
-    target_election = published_election if published_election else active_election
-    
-    # Initialize message for restricted access or no election state
-    display_message = None
-
-    if target_election is None:
-        display_message = 'No Active or Published Elections Available.'
+    if display_election is None:
         return render_template('truecast_results.html', 
                            results={}, 
-                           election_title='No Elections Available',
-                           message=display_message)
+                           election_title='No Published Results Available',
+                           message='No election results have been certified and published by the administration.',
+                           published_list=published_elections,
+                           current_election_id=None)
 
-    # Logic to restrict access to non-active/non-published elections
-    if target_election.get('status') != 'Active' and not target_election.get('published_results'):
-        display_message = f"Results for {target_election['title']} have been finalized but have not yet been certified and published by the administration."
-        return render_template('truecast_results.html', 
-                           results={}, 
-                           election_title=target_election['title'],
-                           message=display_message)
-
-    # If active or published, proceed to tally
-    target_election_id = target_election['id']
-    election_title = target_election.get('title', f"Results for {target_election_id}")
+    # Tally results for the chosen/default election
+    target_election_id = display_election['id']
+    election_title = display_election.get('title', f"Results for {target_election_id}")
     
     results_tally = {}
-
-    # Define all metadata keys to exclude, using both snake_case and camelCase for safety
     METADATA_KEYS = ['transactionHash', 'TransactionHash', 'electionId', 'ElectionId', 'timestamp']
     
     for vote_key, vote in votes_data.items():
         if isinstance(vote, dict) and vote.get('electionId') == target_election_id:
             for race_slug, candidate_slug in vote.items():
-                # FIX: Check if the current key (race_slug) is one of the unwanted metadata keys
                 if race_slug not in METADATA_KEYS: 
                     race_tally = results_tally.setdefault(race_slug, {})
                     race_tally[candidate_slug] = race_tally.get(candidate_slug, 0) + 1
@@ -1296,7 +1333,10 @@ def results():
     return render_template('truecast_results.html', 
                            results=results_tally, 
                            election_title=election_title,
-                           message=display_message)
+                           message=None, 
+                           published_list=published_elections, # Pass the list
+                           current_election_id=target_election_id)
+# --- End of Results Route Fix ---
 
 # --- Admin Live Results Route ---
 @app.route('/admin/results')

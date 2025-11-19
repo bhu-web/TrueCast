@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TRUECAST - Admin Dashboard</title>
@@ -364,9 +365,30 @@
 
         <div class="monitoring-grid">
           <div class="chart-container">
-            <h3 style="color: #2c3e50; margin-bottom: 1rem">Live Vote Count</h3>
-            <div class="chart-placeholder">
-              📊 Live results chart would be displayed here
+            <h3 style="color: #2c3e50; margin-bottom: 1rem">Election Data Visualization</h3>
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+                <select id="electionSelector" class="search-input" style="width: 100%;" onchange="fetchChartData(this.value)">
+                    <option value="N/A" disabled>--- Select an Election ---</option>
+                    {% for election in all_elections_list %}
+                        <option value="{{ election.id }}" {% if election.id == initial_election_id %}selected{% endif %}>
+                            {{ election.title }} ({% if election.published_results %}Published{% else %}{{ election.status }}{% endif %})
+                        </option>
+                    {% endfor %}
+                    {% if not all_elections_list %}
+                        <option value="N/A">No Elections Found</option>
+                    {% endif %}
+                </select>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;">
+                <div>
+                    <h4 id="barChartTitle" style="color: #3498db; margin-bottom: 0.5rem;">Vote Distribution (Top Race)</h4>
+                    <div style="height: 300px;"><canvas id="barChart"></canvas></div>
+                </div>
+                <div>
+                    <h4 style="color: #3498db; margin-bottom: 0.5rem;">Voter Turnout Overview</h4>
+                    <div style="width: 250px; margin: 0 auto;"><canvas id="pieChart"></canvas></div>
+                </div>
             </div>
           </div>
           <div class="activity-feed">
@@ -507,8 +529,8 @@
           </div>
           <div class="election-details">
             <div>
-              <div class="election-detail-value">{{ total_votes_cast }}</div>
-              <div class="election-detail-label">Total Votes Cast (System)</div>
+              <div class="election-detail-value">{{ active_election_votes }}</div>
+              <div class="election-detail-label">Total Votes Cast (Active Election)</div>
             </div>
             <div>
               <div class="election-detail-value">{{ total_voters }}</div>
@@ -566,6 +588,132 @@
             }
             rows[i].style.display = found ? "" : "none";
           }
+        });
+        
+        // 1. Initial Data passed from Flask/Jinja
+        const TURNOUT_DATA_INIT = {{ turnout_data | tojson | safe }};
+        const BAR_CHART_DATA_INIT = {{ bar_chart_data | tojson | safe }};
+        let pieChartInstance = null;
+        let barChartInstance = null;
+      
+        function renderPieChart(data) {
+            const pieCtx = document.getElementById('pieChart');
+            
+            if (pieChartInstance) {
+                pieChartInstance.destroy();
+            }
+
+            if (!data.data || data.data.length === 0 || data.data.every(val => val === 0)) {
+                 // Clear canvas if no data
+                 pieCtx.getContext('2d').clearRect(0, 0, pieCtx.width, pieCtx.height);
+                 return; 
+            }
+            
+            pieChartInstance = new Chart(pieCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        label: 'Voter Status',
+                        data: data.data,
+                        backgroundColor: ['#27ae60', '#bdc3c7'],
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        title: { display: false }
+                    }
+                }
+            });
+        }
+        
+        function renderBarChart(data) {
+            const barCtx = document.getElementById('barChart');
+            
+            if (barChartInstance) {
+                barChartInstance.destroy();
+            }
+            
+            const raceLabel = data.datasets.length > 0 ? data.datasets[0].label : 'No Votes Recorded';
+            document.getElementById('barChartTitle').textContent = `Vote Distribution: ${raceLabel}`;
+
+            if (data.labels.length === 0) {
+                // Clear canvas if no data
+                barCtx.getContext('2d').clearRect(0, 0, barCtx.width, barCtx.height);
+                return;
+            }
+
+            barChartInstance = new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: data.labels,
+                    datasets: data.datasets.map(dataset => ({
+                        ...dataset,
+                        backgroundColor: ['#3498db', '#27ae60', '#f1c40f', '#e74c3c'].slice(0, dataset.data.length),
+                        borderColor: 'rgba(52, 152, 219, 1)',
+                        borderWidth: 1
+                    }))
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        title: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Vote Count' }
+                        }
+                    }
+                }
+            });
+        }
+        
+        async function fetchChartData(electionId) {
+            if (electionId === 'N/A' || !electionId) return;
+            
+            // Show loading state 
+            document.getElementById('barChartTitle').textContent = 'Loading...';
+
+            try {
+                // NEW ROUTE NEEDED: This is an assumed route to fetch data dynamically
+                const response = await fetch(`/api/admin/get-chart-data/${electionId}`); 
+                
+                if (!response.ok) {
+                    throw new Error('Network response was not ok.');
+                }
+                
+                const data = await response.json();
+                
+                // The API returns {'turnout_data', 'bar_chart_data'}
+                renderPieChart(data.turnout_data);
+                renderBarChart(data.bar_chart_data);
+                
+            } catch (error) {
+                console.error('Error fetching chart data:', error);
+                document.getElementById('barChartTitle').textContent = 'Error Loading Data';
+            }
+        }
+
+        // Initialize charts on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            renderPieChart(TURNOUT_DATA_INIT);
+            renderBarChart(BAR_CHART_DATA_INIT);
+            
+            // Auto-select initial election data if available
+            const selector = document.getElementById('electionSelector');
+            const initialId = selector.value;
+            
+            if (initialId && initialId !== 'N/A') {
+                const initialTitle = selector.options[selector.selectedIndex].text.split('(')[0].trim();
+                document.getElementById('barChartTitle').textContent = `Vote Distribution: ${initialTitle}`;
+            }
         });
     </script>
   </body>

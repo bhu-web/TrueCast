@@ -456,6 +456,11 @@
           display: none;
         }
       }
+      
+      /* Additional Styles for Problem 3 */
+      .status-active { background: #d1fae5; color: #059669; }
+      .status-ended { background: #fef2f2; color: #b91c1c; }
+      .status-published { background: #ccfbf1; color: #0f766e; }
 
       /* Accessibility */
       .sr-only {
@@ -720,7 +725,42 @@
           </div>
         </div>
       </div>
-    </div>
+      
+      {% if all_elections %}
+      <div style="margin-top: 3rem; background: white; border-radius: 15px; padding: 2rem; box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);">
+          <h2 style="color: #2c3e50; margin-bottom: 1.5rem;">All Election History</h2>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+              {% for e in all_elections %}
+              <div style="border: 1px solid #e9ecef; border-radius: 10px; padding: 1rem; background: #f8f9fa;">
+                  <h4 style="color: #3498db; margin-bottom: 0.5rem;">{{ e.title }}</h4>
+                  <p style="font-size: 0.9rem; color: #7f8c8d; margin-bottom: 0.5rem;">ID: {{ e.id }}</p>
+                  <span class="status-badge 
+                      {% if e.status == 'Active' %}status-active
+                      {% elif e.published_results %}status-published
+                      {% else %}status-ended{% endif %}"
+                      style="
+                          display: inline-block;
+                          padding: 0.3rem 0.8rem;
+                          border-radius: 15px;
+                          font-size: 0.8rem;
+                          font-weight: 600;
+                      ">
+                      {% if e.published_results %}Results Published{% else %}{{ e.status }}{% endif %}
+                  </span>
+                  <p style="margin-top: 1rem; font-size: 0.9rem;">
+                      **Starts:** {{ e.startDate.split('T')[0] }} **Ends:** {{ e.endDate.split('T')[0] }}
+                  </p>
+                  {% if e.published_results %}
+                    <a href="/results?election_id={{ e.id }}" class="btn btn-primary" style="padding: 0.5rem 1rem; margin-top: 1rem; font-size: 0.8rem;">View Results</a>
+                  {% endif %}
+              </div>
+              {% else %}
+              <p>No elections found in the system.</p>
+              {% endfor %}
+          </div>
+      </div>
+      {% endif %}
+      </div>
 
     <div class="modal" id="confirmationModal" style="display: none;">
       <div class="modal-content">
@@ -806,9 +846,10 @@
         // Server-provided data
         const SERVER_HAS_VOTED = {{ has_voted | tojson | safe }};
         const SERVER_ELECTION_ACTIVE = {{ election_active | tojson | safe }};
-        const SERVER_ALL_RACE_IDS = {{ all_race_ids | tojson | safe }};
+        // FIX for Problem 1: This variable now holds the *region-filtered* list of races required
+        const SERVER_REQUIRED_RACE_NAMES = {{ all_race_ids | tojson | safe }}; 
         // FIX: Ensure SERVER_ELECTION defaults to {} to prevent JSON errors on missing objects
-        const SERVER_ELECTION = {{ election | default({'endDate': '2000-01-01T00:00:00+05:30'}) | tojson | safe }};
+        const SERVER_ELECTION = {{ election | default({'endDate': '2000-01-01T00:00:00+05:30', 'id': 'NONE'}) | tojson | safe }};
         // FIX: Ensure filtered_ballot defaults to '[]'. This is now a JSON string in JS.
         const filteredBallotJSON = {{ filtered_ballot | tojson | default('[]') | safe }}; 
         
@@ -816,68 +857,63 @@
         let raceTitles = {}; // Map race slug back to full title for summary
         let candidateDisplayNames = {}; // Map candidate slug back to display name
 
-        // Build initial data structure by parsing the JSON string once
-        if (SERVER_ELECTION_ACTIVE) {
-            // FIX: Parse the JSON string *once* into a JavaScript object
-            const filteredBallot = JSON.parse(filteredBallotJSON);
+        function initializeVoteData() {
+            // Only proceed if an election is active
+            if (!SERVER_ELECTION_ACTIVE) return;
             
-            filteredBallot.forEach(race => {
-                const raceSlug = race.name.replace(/ /g, '-').toLowerCase();
-                votes[raceSlug] = null;
-                raceTitles[raceSlug] = race.name;
+            // 1. Build initial data structure by parsing the JSON string once
+            try {
+                const filteredBallot = JSON.parse(filteredBallotJSON);
                 
-                // Add candidate display names to the mapping
-                race.candidates.forEach(candidate => {
-                    const candidateSlug = candidate.name.replace(/ /g, '-').toLowerCase();
-                    candidateDisplayNames[candidateSlug] = candidate.name;
-                });
-            });
-            // Ensure the end time display reflects IST
-        const endTimeElement = document.getElementById('electionEndTime');
-        // Display Election End in IST
-if (endTimeElement && SERVER_ELECTION.endDate) {
-    const [datePartRaw] = SERVER_ELECTION.endDate.split('+'); // split off +05:30
-    const dt = new Date(datePartRaw); // creates raw time, no timezone conversion
-    endTimeElement.textContent = dt.toLocaleString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        dateStyle: 'medium',
-        timeStyle: 'medium'
-    }) + " IST";
-}
-
-
-        // Overwrite with previous votes if available
-        try {
-            const previousVotes = {{ previous_votes | default({}) | tojson | safe }};
-            // Filter out the metadata fields (like transactionHash, electionId)
-            Object.keys(previousVotes).forEach(key => {
-                if (votes.hasOwnProperty(key)) {
-                    votes[key] = previousVotes[key];
-                }
-            });
-        }catch (e) {
-            console.error("Could not parse previous votes from server.", e);
-        }
-        
-        // --- SESSION CLEANUP / LOCAL STORAGE LOAD ---
-        if (!SERVER_HAS_VOTED && SERVER_ELECTION_ACTIVE) {
-            const localStorageKey = `truecast_votes_${SERVER_ELECTION.id}`;
-            const savedVotes = localStorage.getItem(localStorageKey);
-            if (savedVotes) {
-                try {
-                    const parsedVotes = JSON.parse(savedVotes);
-                    // Merge saved votes, respecting only keys defined in the current race.
-                    Object.keys(parsedVotes).forEach(raceSlug => {
-                        if (votes.hasOwnProperty(raceSlug)) {
-                            votes[raceSlug] = parsedVotes[raceSlug];
-                        }
+                filteredBallot.forEach(race => {
+                    const raceSlug = race.name.replace(/ /g, '-').toLowerCase();
+                    votes[raceSlug] = null; // Initialize vote for every required race
+                    raceTitles[raceSlug] = race.name;
+                    
+                    race.candidates.forEach(candidate => {
+                        const candidateSlug = candidate.name.replace(/ /g, '-').toLowerCase();
+                        candidateDisplayNames[candidateSlug] = candidate.name;
                     });
-                } catch (e) {
-                    console.log('Could not load saved votes from local storage.');
+                });
+            } catch (e) {
+                console.error("Error parsing filteredBallotJSON:", e);
+            }
+            
+            // 2. Overwrite with previous votes if available (from server)
+            try {
+                const previousVotes = {{ previous_votes | default({}) | tojson | safe }};
+                Object.keys(previousVotes).forEach(key => {
+                    if (votes.hasOwnProperty(key)) {
+                        votes[key] = previousVotes[key];
+                    }
+                });
+            }catch (e) {
+                console.error("Could not parse previous votes from server.", e);
+            }
+            
+            // 3. Load from local storage (overwrites server data if local save is newer/exists)
+            if (!SERVER_HAS_VOTED) {
+                const localStorageKey = `truecast_votes_${SERVER_ELECTION.id}`;
+                const savedVotes = localStorage.getItem(localStorageKey);
+                if (savedVotes) {
+                    try {
+                        const parsedVotes = JSON.parse(savedVotes);
+                        Object.keys(parsedVotes).forEach(raceSlug => {
+                            if (votes.hasOwnProperty(raceSlug)) {
+                                votes[raceSlug] = parsedVotes[raceSlug];
+                            }
+                        });
+                    } catch (e) {
+                        console.log('Could not load saved votes from local storage.');
+                    }
                 }
             }
         }
-        // --- END SESSION CLEANUP / LOCAL STORAGE LOAD ---
+        
+        // Call this immediately to populate the votes object before any DOM manipulation
+        initializeVoteData(); 
+        
+        // --- Functions for Voting and UI Updates ---
 
         function selectCandidate(raceSlug, candidateSlug) {
             if (SERVER_HAS_VOTED) {
@@ -900,17 +936,18 @@ if (endTimeElement && SERVER_ELECTION.endDate) {
         }
 
         function updateProgress() {
-            // Note: SERVER_ALL_RACE_IDS is the list of race names (not slugs). We need to convert them to check against the 'votes' object keys (slugs).
-            const races = SERVER_ALL_RACE_IDS.map(name => name.replace(/ /g, '-').toLowerCase());
+            // Use the authoritative list of required races from Flask context (all_race_ids)
+            const requiredRaceSlugs = SERVER_REQUIRED_RACE_NAMES.map(name => name.replace(/ /g, '-').toLowerCase());
             let completed = 0;
             
-            races.forEach(raceSlug => {
-                if (votes[raceSlug] !== null && votes[raceSlug] !== undefined) {
+            requiredRaceSlugs.forEach(raceSlug => {
+                // Check if the race slug exists in our VOTE object AND has a non-null selection
+                if (votes.hasOwnProperty(raceSlug) && votes[raceSlug] !== null) {
                     completed++;
                 }
             });
 
-            const total = races.length;
+            const total = requiredRaceSlugs.length;
             const percentage = (completed / total) * 100;
 
             document.getElementById('progressText').textContent = `${completed}/${total}`;
@@ -919,7 +956,8 @@ if (endTimeElement && SERVER_ELECTION.endDate) {
             if (!SERVER_HAS_VOTED) {
                 const submitBtn = document.getElementById('submitVoteBtn');
                 if (submitBtn) {
-                    submitBtn.disabled = completed < total;
+                    // Button is enabled only when completed equals total
+                    submitBtn.disabled = completed < total; 
                 }
             }
         }
@@ -949,10 +987,14 @@ if (endTimeElement && SERVER_ELECTION.endDate) {
         }
 
         function submitVote() {
-            const completed = Object.values(votes).filter(vote => vote !== null).length;
-            const totalRequired = SERVER_ALL_RACE_IDS.length;
+            // Note: We check against SERVER_REQUIRED_RACE_NAMES length here too
+            const totalRequired = SERVER_REQUIRED_RACE_NAMES.length; 
             
+            // Run final progress check to ensure no last-second unselection
+            const completed = Object.values(votes).filter(vote => vote !== null).length;
+
             if (completed < totalRequired) {
+                // This should not happen if the button is correctly disabled, but is a safe guard
                 showErrorModal('Please make selections for all required races before submitting your vote.');
                 return;
             }
@@ -1056,91 +1098,39 @@ if (endTimeElement && SERVER_ELECTION.endDate) {
         }
 
         function updateTimer() {
-    if (!SERVER_ELECTION.endDate) return;
+            if (!SERVER_ELECTION.endDate) return;
 
-    // Split "YYYY-MM-DDTHH:MM:SS+05:30"
-    const [datePart, offsetPart] = SERVER_ELECTION.endDate.split('+');
+            // 1. Get the authoritative Election End Time (in UTC milliseconds)
+            // JavaScript Date constructor handles the ISO string 'YYYY-MM-DDTHH:MM:SS+05:30' 
+            // by correctly determining its equivalent UTC millisecond value.
+            const electionEnd = new Date(SERVER_ELECTION.endDate).getTime();
 
-    // Raw local datetime WITHOUT timezone conversion
-    const localTime = new Date(datePart);
-
-    // IST offset always +5:30 = +330 minutes
-    const istOffsetMs = 330 * 60 * 1000;
-
-    // Create true IST timestamp (correct direction!)
-    const electionEnd = localTime.getTime() + istOffsetMs;
-
-    const nowLocal = Date.now();
-    const timeLeft = electionEnd - nowLocal;
-
-    const timerDisplay = document.getElementById("electionTimer");
-
-    if (timeLeft <= 0 || isNaN(timeLeft)) {
-        timerDisplay.textContent = "00:00:00";
-        return;
-    }
-
-    const h = Math.floor(timeLeft / 3600000);
-    const m = Math.floor((timeLeft % 3600000) / 60000);
-    const s = Math.floor((timeLeft % 60000) / 1000);
-
-    timerDisplay.textContent =
-        `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-}
-
-
-// DEBUG: Show raw timestamp on the page
-document.body.insertAdjacentHTML(
-    'beforeend',
-    `<div style="position:fixed;bottom:10px;left:10px;background:#000;color:#0f0;padding:10px;z-index:999999;font-size:14px;">
-        RAW endDate: ${SERVER_ELECTION.endDate}
-    </div>`
-);
-
-
-        // function updateTimer() {
-        //     if (!SERVER_ELECTION_ACTIVE || !SERVER_ELECTION.endDate) return;
-
-        //     const now = new Date().getTime();
-        //     const electionEnd = Date.parse(SERVER_ELECTION.endDate);
-        //     const timeLeft = electionEnd - now;
+            // 2. Get the current time (in UTC milliseconds)
+            const nowUTC = Date.now();
             
-        //     const timerDisplay = document.getElementById('electionTimer');
-        //     const endTimeDisplay = document.getElementById('electionEndTime');
+            // 3. Calculate the difference (Time Left in milliseconds)
+            const timeLeft = electionEnd - nowUTC;
+            const timerDisplay = document.getElementById("electionTimer");
 
-        //     // FIX: Display the End Date strictly in IST
-        //     if (endTimeDisplay) {
-        //         const dateObj = new Date(SERVER_ELECTION.endDate);
-        //         endTimeDisplay.textContent = dateObj.toLocaleString('en-IN', {
-        //             timeZone: 'Asia/Kolkata',
-        //             dateStyle: 'medium',
-        //             timeStyle: 'medium'
-        //         }) + " IST";
-        //     }
-            
-        //     if (timeLeft <= 0 || isNaN(electionEnd)) {
-        //         timerDisplay.textContent = '00:00:00';
-        //         const statusBadge = document.querySelector('.election-status');
-        //         if(statusBadge) {
-        //             statusBadge.textContent = '🔴 ENDED';
-        //             statusBadge.classList.add('inactive');
-        //         }
+            if (timeLeft <= 0 || isNaN(timeLeft)) {
+                timerDisplay.textContent = "00:00:00";
+                clearInterval(timerInterval); // Stop the timer
                 
-        //         clearInterval(timerInterval); 
-        //         // Optional: Only reload if it was previously active to avoid infinite loops
-        //         if (document.getElementById('submitVoteBtn')) {
-        //              window.location.reload();
-        //         }
-        //         return;
-        //     }
+                // Optional: If the election is active but time is 0, reload to update status
+                if (SERVER_ELECTION_ACTIVE) {
+                    setTimeout(() => { window.location.reload(); }, 2000);
+                }
+                return;
+            }
 
-        //     const hours = Math.floor(timeLeft / (1000 * 60 * 60));
-        //     const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-        //     const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
+            const h = Math.floor(timeLeft / 3600000);
+            const m = Math.floor((timeLeft % 3600000) / 60000);
+            const s = Math.floor((timeLeft % 60000) / 1000);
 
-        //     timerDisplay.textContent =
-        //         `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        // }
+            timerDisplay.textContent =
+                `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        }
+
         
         let timerInterval;
 
@@ -1166,7 +1156,7 @@ document.body.insertAdjacentHTML(
                 return;
             }
 
-            // Restore selections from local storage/server data
+            // Restore selections from the 'votes' object initialized earlier
             Object.keys(votes).forEach(raceSlug => {
                 const candidateSlug = votes[raceSlug];
                 if (candidateSlug) {
