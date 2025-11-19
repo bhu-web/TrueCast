@@ -500,7 +500,8 @@
 
       .loading-dots {
         align-self: flex-start;
-        display: none;
+        display: flex; /* Changed from none to flex */
+        align-items: center;
         animation: fadeIn 0.5s ease;
       }
 
@@ -842,13 +843,13 @@
 
     <script>
       // Language switching functionality
-      document
-        .getElementById("language")
-        .addEventListener("change", function (e) {
+      const langSelector = document.getElementById("language");
+      if (langSelector) {
+        langSelector.addEventListener("change", function (e) {
           const lang = e.target.value;
-          // In a real implementation, this would trigger translation
           console.log("Language changed to:", lang);
         });
+      }
 
       // Smooth scrolling for navigation links
       document.querySelectorAll('a[href^="#"]').forEach((anchor) => {

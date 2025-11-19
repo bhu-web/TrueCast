@@ -11,6 +11,7 @@ import easyocr
 import io # Needed to read file bytes
 import cv2 # NEW: OpenCV for image processing
 import numpy as np # NEW: Numpy for image arrays
+import google.generativeai as genai # NEW IMPORT
 from flask_mail import Mail, Message # New import
 from dotenv import load_dotenv
 load_dotenv()
@@ -56,6 +57,50 @@ app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
 app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_USERNAME', '')
 
 mail = Mail(app)
+
+
+# --- NEW: Gemini API Configuration ---
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+else:
+    print("Warning: GEMINI_API_KEY not found in environment variables.")
+
+# --- Configuration for the TRUECAST Bot (Indian Context) ---
+TRUECAST_SYSTEM_PROMPT = """
+You are the official AI support assistant for TRUECAST, a secure blockchain-based digital voting platform for Indian elections.
+Your role is to assist voters with the following tasks:
+
+1. **Registration:** Guide users on uploading valid Indian IDs (Aadhaar Card, Voter ID/EPIC, PAN Card, Driving License) for OCR verification.
+2. **Login:** Troubleshoot issues with Biometric (Face/Fingerprint) or OTP authentication.
+3. **Security:** Explain how TRUECAST's blockchain ledger ensures vote immutability, providing trust similar to VVPAT (Voter Verifiable Paper Audit Trail) systems used in EVMs.
+4. **Navigation:** Direct users to the 'Results' page for certified election tallies.
+
+GUIDELINES:
+- **STRICT NEUTRALITY:** You must remain non-partisan. Do NOT express opinions on Indian political parties (e.g., BJP, INC, AAP, etc.) or candidates.
+- **TONE:** Professional, reassuring, and helpful. Use Indian English nuances where appropriate.
+- **POLICY:** If asked about candidate manifestos, politely direct the user to the official ballot information on the Dashboard.
+- **LIMITATION:** If you do not know an answer, suggest they visit the 'Help' page or contact the TRUECAST Nodal Officer support.
+"""
+
+# Initialize the model with the system instruction
+# --- Robust Model Initialization ---
+# --- Robust Model Initialization (Uses the currently stable 2.5 Flash model) ---
+# We use 'gemini-2.5-flash' as it is the current, fast, and recommended stable version.
+# If this fails, there is a fundamental issue with the API key or service enablement.
+try:
+    chat_model = genai.GenerativeModel(
+        model_name='gemini-2.5-flash', 
+        system_instruction=TRUECAST_SYSTEM_PROMPT
+    )
+    print("Gemini AI initialized with: gemini-2.5-flash (Stable)")
+    
+except Exception as e:
+    print(f"CRITICAL ERROR: Could not initialize model gemini-2.5-flash. Details: {e}")
+    # Fallback check for API key
+    if not GEMINI_API_KEY:
+        print("ACTION REQUIRED: GEMINI_API_KEY is missing. Check your .env file.")
+    chat_model = None
 
 # --- NEW: OTP Routes ---
 
@@ -1356,6 +1401,53 @@ def page_not_found(e):
     # Note: '404.html' must exist in your templates folder
     return render_template('404.html'), 404
 # --- End Auxiliary Pages ---
+
+
+@app.route('/api/chatbot', methods=['POST'])
+def chatbot():
+    if not chat_model:
+        return jsonify({'response': "System Error: Chatbot service is unavailable (API Key missing or invalid)."}), 500
+
+    data = request.get_json()
+    user_message = data.get('message')
+
+    if not user_message:
+        return jsonify({'response': "Please enter a message."}), 400
+
+    try:
+        # --- Context Management ---
+        # To verify if we have a conversation history in the session
+        if 'chat_history' not in session:
+            session['chat_history'] = []
+        
+        # Prepare the history for the Gemini API
+        # Gemini expects a list of content objects or dicts: [{'role': 'user', 'parts': ['msg']}]
+        formatted_history = []
+        for msg in session['chat_history']:
+            formatted_history.append({
+                'role': msg['role'],
+                'parts': [msg['content']]
+            })
+
+        # Start a chat session with history
+        chat = chat_model.start_chat(history=formatted_history)
+        
+        # Send the user's message
+        response = chat.send_message(user_message)
+        bot_reply = response.text
+
+        # Update Session History
+        # We append the new interaction to the session memory
+        session['chat_history'].append({'role': 'user', 'content': user_message})
+        session['chat_history'].append({'role': 'model', 'content': bot_reply})
+        session.modified = True # Explicitly mark session as modified
+
+        # Return the plain text response to the frontend
+        return jsonify({'response': bot_reply})
+
+    except Exception as e:
+        print(f"Gemini Chat Error: {e}")
+        return jsonify({'response': "I'm having trouble connecting right now. Please try again later."}), 500
 
 
 if __name__ == "__main__":
