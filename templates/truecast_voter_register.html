@@ -553,7 +553,7 @@
                             <input type="text" id="idNumber" name="idNumber" required value="{{ parsed_data.get('idNumber', '') }}">
                         </div>
                     </div>
-
+                    
                     <div class="biometric-section">
                         <div class="upload-area" onclick="document.getElementById('idDocument').click()">
                             <div class="upload-icon">📄</div>
@@ -567,17 +567,16 @@
                         </div>
                     </div>
 
+
                     <div class="ocr-processing" id="ocrProcessing">
                         <div class="spinner"></div>
                         <p>Processing document with OCR...</p>
                     </div>
 
-                    <!-- UPDATED: Results Section -->
                     <div class="ocr-results-display" id="ocrResultsDisplay">
                         <h3><span>🔍</span> Extracted Data</h3>
                         <ul class="ocr-field-list" id="ocrResultsContent">
-                            <!-- Dynamic Items will be inserted here -->
-                        </ul>
+                            </ul>
                     </div>
 
                     <div class="form-group">
@@ -605,7 +604,13 @@
                             <div class="upload-icon">📷</div>
                             <h4>Facial Recognition Setup</h4>
                             <p>Click to capture your facial biometric data</p>
-                            <button type="button" class="btn btn-primary" onclick="startFaceCapture()">Start Face Capture</button>
+                            
+                            <video id="webcamVideo" autoplay style="width: 100%; max-width: 300px; display: none; margin-bottom: 1rem; border-radius: 10px;"></video>
+                            <canvas id="webcamCanvas" style="display: none;"></canvas>
+                            
+                            <button type="button" class="btn btn-primary" id="startCaptureBtn" onclick="startFaceCapture()">Start Face Capture</button>
+                            <button type="button" class="btn btn-success" id="takePhotoBtn" style="display: none;" onclick="takePhoto()">Capture Photo</button>
+
                         </div>
                         <div class="verification-status status-pending" id="face-status">
                             <span>⏳</span>
@@ -790,10 +795,14 @@
 
             // Check biometric requirements for step 3
             if (step === 3) {
-                const faceStatus = document.getElementById('face-status').textContent.includes('completed');
-                const fingerprintStatus = document.getElementById('fingerprint-status').textContent.includes('completed');
+                // Check if either face status or fingerprint status shows "completed"
+                const faceStatusText = document.getElementById('face-status').textContent;
+                const fingerprintStatusText = document.getElementById('fingerprint-status').textContent;
                 
-                if (!faceStatus && !fingerprintStatus) {
+                const faceCompleted = faceStatusText.includes('completed');
+                const fingerprintCompleted = fingerprintStatusText.includes('completed');
+                
+                if (!faceCompleted && !fingerprintCompleted) {
                     isValid = false;
                     errorMessage = 'Please complete at least one biometric authentication setup.';
                 }
@@ -817,6 +826,8 @@
         function nextStep() {
             if (validateStep(currentStep)) {
                 if (currentStep < totalSteps) {
+                    // Stop camera stream when leaving step 3
+                    if (currentStep === 3) stopCameraStream();
                     currentStep++;
                     updateProgressBar();
                     hideMessage();
@@ -826,6 +837,8 @@
 
         function prevStep() {
             if (currentStep > 1) {
+                // Stop camera stream when leaving step 3
+                if (currentStep === 3) stopCameraStream();
                 currentStep--;
                 updateProgressBar();
                 hideMessage();
@@ -852,18 +865,90 @@
             document.getElementById('successMessage').style.display = 'none';
         }
 
-        // Biometric simulation functions
+        // --- NEW FACIAL RECOGNITION FUNCTIONS ---
+        let currentStream = null;
+
         function startFaceCapture() {
             const statusDiv = document.getElementById('face-status');
-            statusDiv.innerHTML = '<span>⏳</span><span>Capturing facial data...</span>';
-            statusDiv.className = 'verification-status status-pending';
+            const video = document.getElementById('webcamVideo');
+            const startBtn = document.getElementById('startCaptureBtn');
+            const photoBtn = document.getElementById('takePhotoBtn');
+
+            // 1. Request access to the webcam
+            navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+                .then(function(stream) {
+                    currentStream = stream; // Save the stream globally
+                    video.srcObject = stream;
+                    video.style.display = 'block';
+                    
+                    // Wait for the video to start playing before showing the photo button
+                    video.onloadedmetadata = (e) => {
+                        startBtn.style.display = 'none';
+                        photoBtn.style.display = 'inline-block';
+                    };
+
+                    statusDiv.innerHTML = '<span>🟢</span><span>Camera live. Please look at the camera.</span>';
+                    statusDiv.className = 'verification-status status-verified';
+                })
+                .catch(function(error) {
+                    console.error("Camera access error: ", error);
+                    statusDiv.innerHTML = '<span>❌</span><span>Camera access failed. Please ensure permissions are granted.</span>';
+                    statusDiv.className = 'verification-status status-failed';
+                    video.style.display = 'none';
+                });
+        }
+
+        function stopCameraStream() {
+            if (currentStream) {
+                // Stop all tracks (video, audio) in the stream
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+                
+                // Reset UI elements
+                document.getElementById('webcamVideo').style.display = 'none';
+                document.getElementById('startCaptureBtn').style.display = 'inline-block';
+                document.getElementById('takePhotoBtn').style.display = 'none';
+            }
+        }
+
+        function takePhoto() {
+            const video = document.getElementById('webcamVideo');
+            const canvas = document.getElementById('webcamCanvas');
+            const statusDiv = document.getElementById('face-status');
             
+            if (!currentStream) {
+                statusDiv.innerHTML = '<span>❌</span><span>Camera stream not active.</span>';
+                statusDiv.className = 'verification-status status-failed';
+                return;
+            }
+
+            // Set canvas dimensions to match the video
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            // Draw the current video frame onto the canvas
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Stop the camera feed immediately after capture
+            stopCameraStream();
+
+            // Simulate sending data to the server (you would replace this with an API call)
+            // The captured image data is now in canvas.toDataURL('image/png')
+            
+            // Update status for simulation
+            statusDiv.innerHTML = '<span>⏳</span><span>Processing captured biometric data...</span>';
+            statusDiv.className = 'verification-status status-pending';
+
             setTimeout(() => {
                 statusDiv.innerHTML = '<span>✅</span><span>Face capture completed successfully</span>';
                 statusDiv.className = 'verification-status status-verified';
-            }, 3000);
+            }, 2500);
         }
+        // --- END NEW FACIAL RECOGNITION FUNCTIONS ---
 
+
+        // Biometric simulation functions (Fingerprint remains simulated)
         function startFingerprintCapture() {
             const statusDiv = document.getElementById('fingerprint-status');
             statusDiv.innerHTML = '<span>⏳</span><span>Scanning fingerprint...</span>';
