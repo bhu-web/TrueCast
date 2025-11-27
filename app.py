@@ -390,32 +390,24 @@ def clean_text_keep_english(text):
 def parse_ocr_text(text):
     """
     Generic Pattern-Based Parser for Indian IDs.
-    Does NOT rely on "Name:", "DOB:", "Address:" headers.
     """
-    
     # 1. Pre-clean text: Remove Hindi/Regional chars
     text = clean_text_keep_english(text)
-    
     parsed_data = {}
     
     # --- 1. ID NUMBER Patterns ---
-    
     # Aadhaar Pattern: 12 digits (4 4 4), possibly space separated
     # Matches: 1234 5678 9012 or 123456789012
     aadhaar_match = re.search(r'\b(\d{4}\s?\d{4}\s?\d{4})\b', text)
-    
     # PAN Pattern: 5 letters, 4 digits, 1 letter
     # Matches: ABCDE1234F
     pan_match = re.search(r'\b([A-Z]{5}\d{4}[A-Z])\b', text)
-    
     # Passport Pattern: 1 Letter, 7 Digits
     # Matches: A1234567
     passport_match = re.search(r'\b([A-Z]\d{7})\b', text)
-    
     # Driving License Pattern: State Code (2) + Digits
     # Matches: KA01 20200012345
     dl_match = re.search(r'\b([A-Z]{2}[-\s]?\d{13,})\b', text)
-
     if aadhaar_match:
         parsed_data['ID Number'] = aadhaar_match.group(1).replace(" ", "")
         parsed_data['docType'] = 'Aadhaar Card'
@@ -431,14 +423,11 @@ def parse_ocr_text(text):
     else:
         parsed_data['ID Number'] = 'Not Found'
         parsed_data['docType'] = 'Unknown'
-
     # --- 2. DATE OF BIRTH Patterns ---
-    
     # Look for DD/MM/YYYY or DD-MM-YYYY
     # We prioritize dates that are seemingly valid birth years (e.g. 1900-2015)
     # This helps avoid capturing "Issue Dates" that might be in the future or very recent
     dob_match = re.search(r'\b(\d{2}[/-]\d{2}[/-](?:19|20)\d{2})\b', text)
-    
     if dob_match:
         parsed_data['Date of Birth'] = dob_match.group(1)
     else:
@@ -450,12 +439,9 @@ def parse_ocr_text(text):
              parsed_data['Date of Birth'] = 'Not Found'
 
     # --- 3. FULL NAME Patterns (Aadhaar Specific) ---
-    
     # Heuristic: In Aadhaar, name is often the line ABOVE the DOB/Year of Birth
     lines = [line.strip() for line in text.split('\n') if line.strip()]
-    
     name_found = False
-    
     if parsed_data['docType'] == 'Aadhaar Card':
         for i, line in enumerate(lines):
             # Check if this line contains the DOB or Year of Birth keywords
@@ -476,35 +462,28 @@ def parse_ocr_text(text):
                         parsed_data['Full Name'] = potential_name
                         name_found = True
                         break
-
     if not name_found:
         # Fallback Heuristic: Names are usually:
         # - 2 or 3 words
         # - All capitalized or Title Case
         # - Containing only letters
         # - NOT keywords like "Government", "India", "Male", "Female", "Dob", "Address"
-        
         stop_words = ["GOVERNMENT", "INDIA", "MALE", "FEMALE", "DOB", "DATE", "BIRTH", "ADDRESS", 
                       "YEAR", "FATHER", "HUSBAND", "NAME", "CARD", "INCOME", "TAX", "DEPARTMENT",
-                      "UNIQUE", "IDENTIFICATION", "AUTHORITY", "PERMANENT", "ACCOUNT", "NUMBER"]
-                      
+                      "UNIQUE", "IDENTIFICATION", "AUTHORITY", "PERMANENT", "ACCOUNT", "NUMBER"]              
         potential_names = []
-        
         for line in lines:
             clean_line = line.strip()
             # Filter out lines with numbers or symbols
             if not clean_line or any(char.isdigit() for char in clean_line) or len(clean_line) < 4:
-                continue
-                
+                continue  
             # Filter out lines that contain stop words
             words = clean_line.split()
             if any(word.upper() in stop_words for word in words):
-                continue
-                
+                continue  
             # Check if it looks like a name (2-4 words, mostly letters)
             if 2 <= len(words) <= 4 and all(word.isalpha() for word in words):
                  potential_names.append(clean_line)
-
         # Selection Logic:
         if potential_names:
             # For now, just take the first plausible name found
@@ -611,7 +590,6 @@ def ocr_process():
 
 @app.route('/voter-register', methods=['GET', 'POST'])
 def voter_register():
-    # --- Template variable setup (MUST run for both GET and failed POST) ---
     active_election = get_active_election()
     available_regions = {
         'North District', 'South District', 'East District', 
@@ -633,18 +611,14 @@ def voter_register():
         data = request.form.to_dict()
         # CRITICAL: Clean the incoming email of any accidental whitespace
         new_email = data.get('email', '').strip() 
-        
         # --- DUPLICATE CHECK LOGIC ---
         voters = load_voters()
-        
         for voter_id, voter_data in voters.items():
             # CRITICAL: Clean stored email before comparison, just in case
             stored_email = voter_data.get('email', '').strip()
-            
             if stored_email and stored_email == new_email:
                 # If email is found:
                 flash('Registration failed: An account with this email address already exists. Please log in.', 'error')
-                
                 # FIX: RENDER the template directly to show the flash message immediately
                 return render_template(
                     'truecast_voter_register.html',
@@ -654,19 +628,12 @@ def voter_register():
         # --- END DUPLICATE CHECK LOGIC ---
 
         # --- FINAL SERVER-SIDE VERIFICATION ---
-        # FIX: Make ocr_data optional to allow manual entry
         ocr_data = session.get('ocr_data', {})
-        
-        # Only validate against OCR if OCR data actually exists
         if ocr_data:
             is_valid, error_message = validate_registration(data, ocr_data)
             if not is_valid:
                 flash(f'Registration Warning: {error_message}', 'warning')
-                # Note: We changed this to a warning so it doesn't block registration, 
-                # or you can keep it as 'error' and return if you want strict enforcement.
-                # For now, let's allow it to proceed to fix the "button not working" issue.
-
-        # If unique, proceed with saving (logic remains unchanged)
+        # If unique, proceed with saving 
         voter_id = f"VS{datetime.now().year}{random.randint(100000, 999999)}"
         data['voter_id'] = voter_id
         data['registration_date'] = datetime.now(timezone.utc).isoformat() # Use aware datetime
@@ -700,17 +667,14 @@ def validate_registration(form_data, ocr_data):
         print("Warning: Name not found in OCR, proceeding with manual entry trust.")
         pass 
         # return False, "Could not read name from ID document. Please try again or use a clearer image."
-
     form_first = form_data.get('firstName', '').lower()
     form_last = form_data.get('lastName', '').lower()
-    
     # If OCR name exists, check if parts match
     if ocr_name != 'not found':
         if form_first not in ocr_name and form_last not in ocr_name:
             # Only fail if NEITHER part matches.
             # This accounts for "Ialid" vs "Khalid" OCR errors
              return False, f"Name on form ('{form_first} {form_last}') does not match name on ID ('{ocr_name}')."
-        
     # 2. Geo-Verification
     ocr_address = ocr_data.get('Address', 'Not Found').lower()
     if ocr_address == 'not found':
@@ -794,14 +758,12 @@ def voter_login():
     # If user is already logged in, redirect them to the dashboard
     if 'logged_in' in session:
         return redirect(url_for('voting_dashboard'))
-
     if request.method == 'POST':
         data = request.get_json()
         voter_id_or_email = data.get('voterId')
         input_pin = data.get('backupPin')
         voters = load_voters()
         authenticated_voter = None
-
         # --- JSON Database Lookup Logic ---
         for voter_id, voter_data in voters.items():
             # Check for match by voter_id OR email
@@ -809,10 +771,8 @@ def voter_login():
                 authenticated_voter = voter_data
                 break
         # --- End JSON Database Lookup Logic ---
-
         if authenticated_voter:
             stored_pin = authenticated_voter.get('backupPin')
-            
             # This logic handles *both* the initial PIN check *and* the final form submission
             if input_pin:
                 if input_pin != stored_pin:
@@ -824,16 +784,13 @@ def voter_login():
                  # This covers the case where the final submit fires but no PIN was entered
                  # (e.g. simulated auth)
                  pass # Allow simulated auth to proceed
-
             # Login successful: Establish session
             session['logged_in'] = True # CRITICAL: Set the logged_in flag
             session['voter_id'] = authenticated_voter['voter_id']
             session['email'] = authenticated_voter.get('email')
-            
-            # --- FIX: Construct full name reliably from registration fields ---
+            # Construct full name reliably from registration fields ---
             first_name = authenticated_voter.get('firstName', '')
             last_name = authenticated_voter.get('lastName', '')
-            
             if first_name or last_name:
                 clean_full_name = f"{first_name} {last_name}".strip()
                 # Construct name from the standard fields found in your JSON data
@@ -841,17 +798,12 @@ def voter_login():
             else:
                 # Fallback to 'Full Name' key (from OCR) or the default 'Voter' string
                 session['full_name'] = authenticated_voter.get('Full Name', 'Voter')
-            # ------------------------------------------------------------------
-            
             session['voter_region'] = authenticated_voter.get('voterRegion')
-            
             # The frontend is expecting a 'redirect' URL in the JSON response
             next_url = request.args.get('next') or url_for('voting_dashboard')
             return jsonify({"success": True, "message": "Login successful!", "redirect": next_url})
         else:
-            return jsonify({"success": False, "error": "Voter ID or Email not found."}), 404
-    
-    # Render the login page (including the success message from registration redirect)
+            return jsonify({"success": False, "error": "Voter ID or Email not found."}), 404    # Render the login page (including the success message from registration redirect)
     success_msg = request.args.get('success')
     return render_template('truecast_voter_login.html', success=success_msg)
 
@@ -915,8 +867,6 @@ def voting_dashboard():
             final_required_races_list.append(race_copy['name']) 
     
     # --- END NEW: Get Active Election & Filter Ballot ---
-
-    # ... (Rest of the logic for voters_data and votes_data remains the same) ...
     voters_data = load_voters()
     voter_info = voters_data.get(voter_id)
     if not voter_info:
@@ -1035,22 +985,17 @@ def vote_verification():
 def verify_vote():
     data = request.get_json()
     query = data.get('query')
-    
     all_votes = load_votes()
-    
     # Find a cast vote matching the hash or voter ID
     vote_record = None
     voter_id_found = None
-
     for vote_key, vote_details in all_votes.items():
         voter_id_part = vote_key.split('-')[-1] # Extract voter ID from the composite key
-        
         # Check if the query matches the voter's ID or their transaction hash
         if voter_id_part == query or (isinstance(vote_details, dict) and vote_details.get('transactionHash') == query):
             voter_id_found = voter_id_part
             vote_record = vote_details
             break
-    
     if vote_record:
         # Get the associated election name
         election_id = vote_record.get('electionId')
@@ -1059,7 +1004,6 @@ def verify_vote():
             election = get_election_by_id(election_id)
             if election:
                 election_name = election.get('title', f"Election {election_id}")
-        
         # Construct the response using the found vote record
         demo_vote_data = {
             "voterId": voter_id_found,
@@ -1074,7 +1018,6 @@ def verify_vote():
             "blockHash": generate_hash_id()
         }
         return jsonify({"success": True, "data": demo_vote_data})
-    
     return jsonify({"success": False, "error": "Vote not found."}), 404
 
 

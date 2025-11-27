@@ -760,7 +760,7 @@
 
         function validateStep(step) {
             const stepDiv = document.getElementById(`step${step}`);
-            const requiredInputs = stepDiv.querySelectorAll('input[required], select[required]');
+            const requiredInputs = stepDiv.querySelectorAll('input[required], select[required], textarea[required]');
             let isValid = true;
             let errorMessage = '';
 
@@ -769,6 +769,7 @@
                     isValid = false;
                     input.style.borderColor = '#e74c3c';
                     errorMessage = 'Please fill in all required fields.';
+                    return; // Exit forEach early on first fail
                 } else {
                     input.style.borderColor = '#27ae60';
                 }
@@ -778,23 +779,33 @@
                     isValid = false;
                     input.style.borderColor = '#e74c3c';
                     errorMessage = 'Please enter a valid email address.';
+                    return; // Exit forEach early on first fail
                 }
 
                 if (input.type === 'tel' && input.value && !validators.phone.test(input.value.replace(/\D/g, ''))) {
                     isValid = false;
                     input.style.borderColor = '#e74c3c';
                     errorMessage = 'Please enter a valid phone number.';
-                }
-
-                if (input.id === 'backupPin' && input.value && !validators.pin.test(input.value)) {
-                    isValid = false;
-                    input.style.borderColor = '#e74c3c';
-                    errorMessage = 'PIN must be exactly 6 digits.';
+                    return; // Exit forEach early on first fail
                 }
             });
 
+            // --- NEW: AGE VERIFICATION FOR STEP 1 ---
+            if (step === 1 && isValid) {
+                const ageCheckResult = checkAgeEligibility();
+                if (!ageCheckResult.isEligible) {
+                    isValid = false;
+                    document.getElementById('dateOfBirth').style.borderColor = '#e74c3c';
+                    errorMessage = ageCheckResult.message;
+                } else {
+                    document.getElementById('dateOfBirth').style.borderColor = '#27ae60';
+                }
+            }
+            // --- END NEW: AGE VERIFICATION ---
+
+
             // Check biometric requirements for step 3
-            if (step === 3) {
+            if (step === 3 && isValid) {
                 // Check if either face status or fingerprint status shows "completed"
                 const faceStatusText = document.getElementById('face-status').textContent;
                 const fingerprintStatusText = document.getElementById('fingerprint-status').textContent;
@@ -809,7 +820,7 @@
             }
 
             // Check terms acceptance for step 4
-            if (step === 4) {
+            if (step === 4 && isValid) {
                 const acceptTerms = document.getElementById('acceptTerms').checked;
                 const consentBiometric = document.getElementById('consentBiometric').checked;
                 
@@ -818,9 +829,46 @@
                     errorMessage = 'Please accept the required terms and consents.';
                 }
             }
+            
+            // Only show message if there is an error
+            if (isValid === false) {
+                 showMessage(errorMessage, 'error');
+            } else {
+                 hideMessage();
+            }
 
-            showMessage(errorMessage, 'error');
             return isValid;
+        }
+
+        // --- NEW FUNCTION: Age Eligibility Check ---
+        function checkAgeEligibility() {
+            const dobInput = document.getElementById('dateOfBirth');
+            const dobValue = dobInput.value;
+
+            if (!dobValue) {
+                return { isEligible: false, message: 'Please enter your Date of Birth.' };
+            }
+
+            const today = new Date();
+            const birthDate = new Date(dobValue);
+
+            // Calculate age based on full years
+            let age = today.getFullYear() - birthDate.getFullYear();
+            const monthDifference = today.getMonth() - birthDate.getMonth();
+            
+            // If month difference is negative, or if the months are the same but the current day is before the birth day, 
+            // the person hasn't had their birthday this year yet, so decrement age.
+            if (monthDifference < 0 || (monthDifference === 0 && today.getDate() < birthDate.getDate())) {
+                age--;
+            }
+
+            const MIN_VOTING_AGE = 18;
+
+            if (age < MIN_VOTING_AGE) {
+                return { isEligible: false, message: `You are not 18 yet and are not eligible to vote. Age: ${age}` };
+            }
+
+            return { isEligible: true, message: 'Eligible' };
         }
 
         function nextStep() {
