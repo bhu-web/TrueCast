@@ -306,6 +306,18 @@
       .election-list-info small {
         color: #7f8c8d;
       }
+      .admin-info .btn-danger {
+    background: #e74c3c;
+    color: white;
+    font-weight: 500;
+    border-radius: 6px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: background 0.2s;
+}
+
+.admin-info .btn-danger:hover {
+    background: #c0392b;
+}
     </style>
   </head>
   <body>
@@ -334,6 +346,12 @@
         <div class="admin-info">
           <div class="admin-avatar">👤</div>
           <div>Admin Panel</div>
+          <a 
+        href="{{ url_for('admin_logout') }}" 
+        class="btn btn-danger" 
+        style="padding: 0.5rem 1rem; margin-left: 1rem;"
+        >Logout</a
+      >
         </div>
       </div>
     </div>

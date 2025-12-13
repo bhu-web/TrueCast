@@ -1231,6 +1231,13 @@ def create_election():
 # app.py (Modified results route)
 # FIX for Problem 4: Show all published elections and allow navigation
 
+@app.route('/admin-logout')
+def admin_logout():
+    """Clears the admin session and redirects to admin login."""
+    session.pop('admin_logged_in', None) 
+    flash('You have been logged out of the Admin Panel.', 'success')
+    return redirect(url_for('admin_login'))
+
 @app.route('/results')
 def results():
     votes_data = load_votes()
