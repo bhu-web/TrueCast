@@ -858,20 +858,31 @@ def verify_face_login():
     login_photo_b64 = data.get('loginPhotoBase64')
 
     if not voter_identifier or not login_photo_b64:
-        return jsonify({'success': False, 'error': 'Missing ID or photo data.'}), 400
+        print("Face Verification Error: Missing ID or photo data in request.")
+        return jsonify({'success': False, 'error': 'Missing ID or photo data in request.'}), 400
 
     target_voter = get_voter_by_identifier(voter_identifier)
 
     if not target_voter:
+        print(f"Face Verification Error: Voter ID {voter_identifier} not found in database.")
         return jsonify({'success': False, 'error': 'Voter not found.'}), 404
 
     registration_photo_b64 = target_voter.get('registration_photo')
     if not registration_photo_b64:
+        print(f"Face Verification Error: Reference photo missing for voter {voter_identifier}.")
         return jsonify({'success': False, 'error': 'No reference photo found for this voter. Please use PIN or OTP.'}), 400
 
     # 2. Run the Face Verification
     try:
+        # Calls the external function. This is the result we need to debug.
         match, message, score = verify_face_match(registration_photo_b64, login_photo_b64)
+        
+        # --- CRITICAL DEBUGGING LOG ---
+        print(f"--- BIOMETRIC VERIFICATION RESULT ---")
+        print(f"Voter: {voter_identifier}, Match: {match}, Score: {score}")
+        print(f"Message: {message}")
+        print(f"-------------------------------------")
+        # -------------------------------------
 
         if match:
             # 3. Simulate successful login (Same logic as voter_login/otp_verify)
@@ -890,12 +901,12 @@ def verify_face_login():
                 'redirect': url_for('voting_dashboard')
             })
         else:
-            return jsonify({'success': False, 'error': message, 'score': score}), 401
+            # Display the actual error message and score returned by the external module
+            return jsonify({'success': False, 'error': f'Verification failed (Score: {score}). {message}'}), 401
 
     except Exception as e:
-        print(f"Face Verification Error: {e}")
-        return jsonify({'success': False, 'error': 'Internal verification error. Check server logs.'}), 500
-
+        print(f"Face Verification FATAL Error: {e}")
+        return jsonify({'success': False, 'error': 'Internal verification error. Check server logs for details.'}), 500
 @app.route('/voter-login', methods=['GET', 'POST'])
 def voter_login():
     # If user is already logged in, redirect them to the dashboard
