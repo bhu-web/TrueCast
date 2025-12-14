@@ -307,17 +307,37 @@
         color: #7f8c8d;
       }
       .admin-info .btn-danger {
-    background: #e74c3c;
-    color: white;
-    font-weight: 500;
-    border-radius: 6px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    transition: background 0.2s;
-}
+        background: #e74c3c;
+        color: white;
+        font-weight: 500;
+        border-radius: 6px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        transition: background 0.2s;
+      }
 
-.admin-info .btn-danger:hover {
-    background: #c0392b;
-}
+      .admin-info .btn-danger:hover {
+        background: #c0392b;
+      }
+      
+      /* NEW: Flash Message Styles for Audit Results */
+      .flash-message {
+        padding: 1rem;
+        margin-bottom: 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        border: 1px solid transparent;
+      }
+      .flash-success {
+        background-color: #d1fae5;
+        color: #059669;
+        border-color: #a7f3d0;
+      }
+      .flash-error {
+        background-color: #fef2f2;
+        color: #b91c1c;
+        border-color: #fca5a5;
+      }
+      /* END NEW CSS */
     </style>
   </head>
   <body>
@@ -347,16 +367,26 @@
           <div class="admin-avatar">👤</div>
           <div>Admin Panel</div>
           <a 
-        href="{{ url_for('admin_logout') }}" 
-        class="btn btn-danger" 
-        style="padding: 0.5rem 1rem; margin-left: 1rem;"
-        >Logout</a
-      >
+            href="{{ url_for('admin_logout') }}" 
+            class="btn btn-danger" 
+            style="padding: 0.5rem 1rem; margin-left: 1rem;"
+          >Logout</a>
         </div>
       </div>
     </div>
 
     <div class="container">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div style="margin-bottom: 1.5rem;">
+            {% for category, message in messages %}
+                <div class="flash-message flash-{{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+            </div>
+        {% endif %}
+      {% endwith %}
       <div class="tab-content active" id="overview">
         <div class="stats-overview">
           <div class="stat-card">
@@ -448,7 +478,6 @@
               <tr>
                 <th>Voter ID</th>
                 <th>Name</th>
-                <!-- <th>Email</th> -->
                 <th>Region</th>
                 <th>Status</th>
                 <th>Registration Date</th>
@@ -459,7 +488,6 @@
               <tr>
                 <td>{{ voter.voter_id }}</td>
                 <td>{{ voter.firstName }} {{ voter.lastName }}</td>
-                <!-- <td>{{ voter.email or 'N/A' }}</td> -->
                 <td>{{ voter.voterRegion or 'N/A' }}</td>
                 <td>
                   <span class="status-badge status-active"
@@ -484,7 +512,14 @@
       <div class="tab-content" id="elections">
         <div class="management-header">
           <h2>Election Management</h2>
-          <a href="/admin/create-election" class="btn btn-success">Create New Election</a>
+          <div style="display: flex; gap: 10px;">
+            <form method="POST" action="/admin/check-integrity" style="display:inline;">
+                <button type="submit" class="btn btn-primary" onclick="return confirm('Running a full audit may take a moment. Proceed?')" style="background: #e67e22;">
+                    Audit Vote Chain Now ⛓️
+                </button>
+            </form>
+            <a href="/admin/create-election" class="btn btn-success">Create New Election</a>
+          </div>
         </div>
         
         <div class="data-table">

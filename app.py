@@ -80,6 +80,42 @@ def check_pin(pin, hashed_pin):
     # The 'hashed_pin' must be a clean string from JSON.
     return bcrypt.checkpw(pin.encode('utf-8'), hashed_pin.encode('utf-8'))
 
+def hash_record(data_dict):
+    """
+    Creates a deterministic SHA-256 hash of a dictionary.
+    Sorting keys ensures the hash is consistent regardless of insertion order.
+    """
+    # 1. Serialize the dictionary to a JSON string with sorted keys and no whitespace
+    serialized_data = json.dumps(
+        data_dict,
+        sort_keys=True, 
+        separators=(',', ':') 
+    ).encode('utf-8')
+    
+    # 2. Hash the resulting bytes
+    return hashlib.sha256(serialized_data).hexdigest()
+
+def get_last_hash():
+    """
+    FIXED: Reads the last vote record from the ledger and returns its 'current_hash'.
+    Removes the broken reference to '.cache' to fix the AttributeError.
+    """
+    votes_data = load_votes()
+
+    if not votes_data:
+        # Genesis Block: Initial hash for the very first record
+        return "0000000000000000000000000000000000000000000000000000000000000000"
+
+    # Get the data of the last vote entry (dictionaries preserve insertion order since Python 3.7)
+    try:
+        last_vote = votes_data[next(reversed(votes_data))]
+    except StopIteration:
+        # Safety fallback if dict somehow becomes corrupted
+        return "0000000000000000000000000000000000000000000000000000000000000000"
+    
+    # Return the hash of the last block. If the key is missing, return Genesis hash.
+    return last_vote.get('current_hash', "0000000000000000000000000000000000000000000000000000000000000000")
+
 try:
     # Fernet keys must be 32 URL-safe base64-encoded bytes
     key_bytes = base64.urlsafe_b64encode(ENCRYPTION_KEY.encode().ljust(32)[:32])
@@ -1029,16 +1065,38 @@ def voting_dashboard():
                 # Attempt to get the original race name for a better error message
                 original_race_name = next((r['name'] for r in filtered_ballot if r['name'].replace(' ', '-').lower() == race_slug), race_slug)
                 return jsonify({'success': False, 'error': f'Please make a selection for the {original_race_name} race.'})
+        
+        # Generates a unique, anonymous key for this vote entry in votes.json
         anonymous_token = hashlib.sha256(os.urandom(32)).hexdigest()
-        transaction_hash = f"0x{hashlib.sha256(json.dumps(selections).encode()).hexdigest()}"
+
+        # ------------------------------------------------------------------
+        # --- START: CHAIN OF CUSTODY IMPLEMENTATION (FIXED) ---
+        # ------------------------------------------------------------------
+
+        # 1. Get the hash of the last vote record to maintain the chain
+        previous_hash = get_last_hash()
+
+        # 2. Define the vote record payload, linking it to the previous record
         vote_record = {
-            'transactionHash': transaction_hash,
             'electionId': active_election_id,
             'timestamp': datetime.now(IST).isoformat(),
+            'previous_hash': previous_hash,        # The cryptographic link (Chain of Custody)
             **selections # Store the actual votes
         }
+
+        # 3. Calculate the new record's unique hash (the 'current_hash' of the block)
+        # This hash is the immutable receipt (transaction hash)
+        transaction_hash = hash_record(vote_record)
+        vote_record['current_hash'] = transaction_hash
+        
+        # 4. Save the full, chained record
         votes_data[anonymous_token] = vote_record 
         save_votes(votes_data)
+
+        # ------------------------------------------------------------------
+        # --- END: CHAIN OF CUSTODY IMPLEMENTATION ---
+        # ------------------------------------------------------------------
+        
 
         if 'vote_status' not in voter_info:
             voter_info['vote_status'] = {}
@@ -1046,6 +1104,8 @@ def voting_dashboard():
             voter_info['receipts'] = {}
             
         voter_info['vote_status'][active_election_id] = True
+        
+        # Encrypt the final hash (the immutable receipt) for the voter
         encrypted_hash = encrypt_data(transaction_hash)
         voter_info['receipts'][active_election_id] = encrypted_hash
         
@@ -1077,6 +1137,42 @@ def voting_dashboard():
         has_voted=has_voted,
         previous_votes=previous_votes
     )
+
+def verify_vote_chain_integrity():
+    """
+    AUDIT TOOL: Iterates through all vote records to verify the cryptographic chain of custody.
+    Returns: (bool, str message)
+    """
+    votes_data = load_votes()
+    
+    if not votes_data:
+        return True, "No votes to verify (chain is empty)."
+
+    # Get a list of the records in insertion order
+    records = list(votes_data.values())
+    
+    # Start verification from the second record (index 1)
+    for i in range(1, len(records)):
+        current_record = records[i]
+        previous_record = records[i - 1]
+        
+        # 1. Verify the 'previous_hash' link
+        expected_previous_hash = previous_record.get('current_hash')
+        actual_previous_hash = current_record.get('previous_hash')
+
+        if actual_previous_hash != expected_previous_hash:
+            return False, f"Chain break detected at record #{i}! Expected hash: {expected_previous_hash}, Found: {actual_previous_hash}"
+
+        # 2. Verify the 'current_hash' content
+        record_for_hashing = current_record.copy()
+        record_for_hashing.pop('current_hash', None) 
+        
+        recalculated_hash = hash_record(record_for_hashing)
+
+        if recalculated_hash != current_record.get('current_hash'):
+            return False, f"Integrity break detected at record #{i}! Recalculated hash does not match stored hash."
+
+    return True, "Chain integrity verified successfully."
 
 # --- End Election Route (Admin) ---
 @app.route('/admin/end-election/<string:election_id>', methods=['POST'])
@@ -1135,23 +1231,26 @@ def verify_vote():
     vote_record = None
     voter_id_found = "Voter ID is kept anonymous for security."
     for anonymous_key, vote_details in all_votes.items():
-        if isinstance(vote_details, dict) and vote_details.get('transactionHash') == query:
+        # Check if the query matches the 'current_hash' (the transaction hash receipt)
+        if isinstance(vote_details, dict) and vote_details.get('current_hash') == query:
             vote_record = vote_details
-            breakrecord = vote_details
             break
-    if not vote_record and query.startswith('VS'): # Check if it looks like a Voter ID
+    if not vote_record and query.startswith('VS'): # Check if search originated from a Voter ID
         voters_data = load_voters()
         voter_info = voters_data.get(query)
         
         if voter_info:
             # Attempt to find the transaction hash associated with the *latest* election receipt
-            # NOTE: This only works if the voter has already voted and the hash is stored in the receipt field.
-            latest_receipt = next(iter(reversed(list(voter_info.get('receipts', {}).values()))), None)
+            latest_receipt_encrypted = next(iter(reversed(list(voter_info.get('receipts', {}).values()))), None)
             
-            if latest_receipt:
-                # Now search votes.json by the hash we found in the voter's record
+            if latest_receipt_encrypted:
+                # Decrypt the hash stored in the voter's receipt
+                latest_receipt_hash = decrypt_data(latest_receipt_encrypted) 
+                
+                # Now search votes.json by this hash
                 for anonymous_key, vote_details in all_votes.items():
-                    if vote_details.get('transactionHash') == latest_receipt:
+                    # --- FIX 2: Use the 'current_hash' key for internal lookup ---
+                    if vote_details.get('current_hash') == latest_receipt_hash:
                         vote_record = vote_details
                         voter_id_found = query # Only display ID if search originated from ID
                         break
@@ -1165,13 +1264,17 @@ def verify_vote():
                 election_name = election.get('title', f"Election {election_id}")
         stored_timestamp = vote_record.get('timestamp')
         display_timestamp = stored_timestamp if stored_timestamp else datetime.now(IST).isoformat()
+        
+        # --- FIX 3: Use 'current_hash' for the response's 'transactionHash' field ---
+        # The front-end expects 'transactionHash', so we pass the value of 'current_hash' here.
+        final_transaction_hash = vote_record.get('current_hash', 'N/A')
         # Construct the response using the found vote record
         demo_vote_data = {
             "voterId": voter_id_found,
             "election": election_name,
             "timestamp": display_timestamp,
             "status": "Confirmed",
-            "transactionHash": vote_record.get('transactionHash', 'N/A'),
+            "transactionHash": final_transaction_hash, # Now holds the correct hash
             "blockNumber": random.randint(10000, 20000), 
             "confirmations": random.randint(100, 500),
             "gasUsed": random.randint(20000, 30000),
@@ -1518,6 +1621,26 @@ def admin_live_results():
 # --- Placeholder Routes ---
 # We add these so the server doesn't crash if a link is clicked.
 # You will need to create the corresponding .html files in your 'templates' folder.
+
+@app.route('/admin/check-integrity', methods=['POST'])
+@admin_required
+def check_integrity():
+    """Runs the cryptographic chain verification audit and redirects."""
+    
+    # 1. Run the audit function (verify_vote_chain_integrity must be defined globally)
+    is_chain_valid, message = verify_vote_chain_integrity()
+    
+    # Optional: Print to the server console for immediate debugging/logging
+    if is_chain_valid:
+        print(f"AUDIT SUCCESS: {message}")
+        flash(f'Chain Verification Success: {message}', 'success')
+    else:
+        # CRITICAL: Flash an error if tampering is detected
+        print(f"AUDIT FAILURE DETECTED: {message}")
+        flash(f'CRITICAL INTEGRITY FAILURE: {message}', 'error')
+        
+    # CRITICAL FIX: Ensure the redirect response object is returned
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/truecast_landing.html')
 def truecast_landing():
