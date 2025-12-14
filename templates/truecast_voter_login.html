@@ -488,16 +488,17 @@
                             </div>
                             <span class="auth-method-status" id="biometric-status"></span>
                         </div>
-                        <div class="auth-content" id="biometric-content">
-                            <div class="biometric-capture" id="biometric-capture">
-                                <div class="biometric-icon">📷</div>
-                                <h4>Ready for Biometric Scan</h4>
-                                <p>Click to authenticate with face or fingerprint</p>
-                                <button type="button" class="btn btn-primary" onclick="startBiometricAuth()">
-                                    Start Biometric Scan
-                                </button>
-                            </div>
-                        </div>
+                        <div class="biometric-capture" id="biometric-capture" data-photo-b64="">
+    <video id="loginWebcamVideo" autoplay style="width: 100%; max-width: 300px; display: none; margin-bottom: 1rem; border-radius: 10px;"></video>
+    <canvas id="loginWebcamCanvas" style="display: none;"></canvas>
+
+    <button type="button" class="btn btn-primary" onclick="startLoginFaceCapture()">
+        Start Biometric Scan
+    </button>
+    <button type="button" class="btn btn-success" id="loginCaptureBtn" style="display: none;" onclick="captureAndVerifyLoginFace()">
+        Capture & Verify
+    </button>
+</div>
                     </div>
 
                     <div class="auth-method" onclick="selectAuthMethod('otp')">
@@ -847,6 +848,102 @@
                 }
             });
         }
+
+        let loginCurrentStream = null;
+
+function startLoginFaceCapture() {
+    const voterId = document.getElementById('voterId').value.trim();
+    if (!voterId) {
+        showMessage('Please enter your Voter ID or email first.', 'error');
+        return;
+    }
+
+    const video = document.getElementById('loginWebcamVideo');
+    const startBtn = event.currentTarget;
+    const captureBtn = document.getElementById('loginCaptureBtn');
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        .then(function(stream) {
+            loginCurrentStream = stream;
+            video.srcObject = stream;
+            video.style.display = 'block';
+            startBtn.style.display = 'none';
+
+            video.onloadedmetadata = (e) => {
+                captureBtn.style.display = 'inline-block';
+            };
+
+            document.getElementById('biometric-status').innerHTML = 'Camera Live 🟢';
+        })
+        .catch(function(error) {
+            console.error("Camera access error: ", error);
+            showMessage('Camera access failed. Please ensure permissions are granted.', 'error');
+            document.getElementById('biometric-status').innerHTML = '❌';
+        });
+}
+
+function stopLoginCameraStream() {
+    if (loginCurrentStream) {
+        loginCurrentStream.getTracks().forEach(track => track.stop());
+        loginCurrentStream = null;
+    }
+}
+
+function captureAndVerifyLoginFace() {
+    const voterId = document.getElementById('voterId').value.trim();
+    const video = document.getElementById('loginWebcamVideo');
+    const canvas = document.getElementById('loginWebcamCanvas');
+    const captureBtn = document.getElementById('loginCaptureBtn');
+
+    if (!loginCurrentStream) return;
+
+    // 1. Capture Photo
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const loginPhotoData = canvas.toDataURL('image/png'); 
+
+    stopLoginCameraStream(); // Stop stream immediately after capture
+
+    captureBtn.innerHTML = '<span class="loading-spinner"></span> Verifying...';
+    captureBtn.disabled = true;
+
+    // 2. Call the server-side verification API
+    fetch('/api/verify-face-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+            voterId: voterId, 
+            loginPhotoBase64: loginPhotoData 
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('biometric-status').innerHTML = '✅';
+            showMessage(data.message, 'loginSuccessMessage');
+
+            // Complete MFA step and redirect to dashboard
+            completeAuthStep('mfa');
+
+            setTimeout(() => {
+                window.location.href = data.redirect;
+            }, 1500);
+
+        } else {
+            document.getElementById('biometric-status').innerHTML = '❌';
+            showMessage(data.error || 'Face verification failed.', 'error');
+            captureBtn.innerHTML = 'Capture & Verify';
+            captureBtn.disabled = false;
+        }
+    })
+    .catch(error => {
+        console.error('Login Verification Error:', error);
+        showMessage('Network error during face verification.', 'error');
+        captureBtn.innerHTML = 'Capture & Verify';
+        captureBtn.disabled = false;
+    });
+}
 
         function completeAuthStep(stepType) {
             authenticationSteps[stepType] = true;

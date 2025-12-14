@@ -13,6 +13,7 @@ import cv2 # NEW: OpenCV for image processing
 import numpy as np # NEW: Numpy for image arrays
 import google.generativeai as genai # NEW IMPORT
 from flask_mail import Mail, Message # New import
+from face_verification import verify_face_match
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -55,9 +56,26 @@ app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '')
 app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
 app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_USERNAME', '')
+app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 
 mail = Mail(app)
 
+@app.after_request
+def add_security_headers(response):
+    """
+    Prevents the browser from caching secure pages after logout.
+    This forces the browser to re-request the page from the server, 
+    where the login_required check will run.
+    """
+    # Standard headers to prevent caching on all modern browsers
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache" # For HTTP 1.0 compatibility
+    response.headers["Expires"] = "0" # Proxies/Browsers should not cache expired content
+    
+    # If using HTTPS (recommended), you can also use this:
+    # response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+
+    return response
 
 # --- NEW: Gemini API Configuration ---
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
@@ -611,6 +629,7 @@ def voter_register():
         data = request.form.to_dict()
         # CRITICAL: Clean the incoming email of any accidental whitespace
         new_email = data.get('email', '').strip() 
+        voter_photo_b64 = data.get('voterPhotoBase64')
         # --- DUPLICATE CHECK LOGIC ---
         voters = load_voters()
         for voter_id, voter_data in voters.items():
@@ -639,6 +658,7 @@ def voter_register():
         data['registration_date'] = datetime.now(timezone.utc).isoformat() # Use aware datetime
         data['status'] = 'Active' 
         data['backupPin'] = data.get('backupPin', '000000') 
+        data['registration_photo'] = voter_photo_b64
         voters[voter_id] = data
         save_voters(voters)
         session.pop('ocr_data', None) # Clear session data
@@ -752,6 +772,54 @@ def validate_registration(form_data, ocr_data):
          return False, f"The address on your ID (in '{ocr_address}') suggests you are in '{expected_region}', but you selected '{form_region}'. Please select the correct region."
 
     return True, "Success"
+
+# app.py (New Route)
+
+@app.route('/api/verify-face-login', methods=['POST'])
+def verify_face_login():
+    data = request.get_json()
+    voter_identifier = data.get('voterId')
+    login_photo_b64 = data.get('loginPhotoBase64')
+
+    if not voter_identifier or not login_photo_b64:
+        return jsonify({'success': False, 'error': 'Missing ID or photo data.'}), 400
+
+    # 1. Find the voter and their stored registration photo
+    voters = load_voters()
+    target_voter = None
+    for v_data in voters.values():
+        if v_data.get('voter_id') == voter_identifier or v_data.get('email') == voter_identifier:
+            target_voter = v_data
+            break
+
+    if not target_voter:
+        return jsonify({'success': False, 'error': 'Voter not found.'}), 404
+
+    registration_photo_b64 = target_voter.get('registration_photo')
+    if not registration_photo_b64:
+        return jsonify({'success': False, 'error': 'No reference photo found for this voter. Please use PIN or OTP.'}), 400
+
+    # 2. Run the Face Verification
+    try:
+        match, message, score = verify_face_match(registration_photo_b64, login_photo_b64)
+
+        if match:
+            # 3. Simulate successful login (Same logic as voter_login/otp_verify)
+            session['logged_in'] = True
+            session['voter_id'] = target_voter['voter_id']
+            # ... (other session data) ...
+
+            return jsonify({
+                'success': True, 
+                'message': f'Face verified! Score: {score}. Login successful.',
+                'redirect': url_for('voting_dashboard')
+            })
+        else:
+            return jsonify({'success': False, 'error': message, 'score': score}), 401
+
+    except Exception as e:
+        print(f"Face Verification Error: {e}")
+        return jsonify({'success': False, 'error': 'Internal verification error. Check server logs.'}), 500
 
 @app.route('/voter-login', methods=['GET', 'POST'])
 def voter_login():

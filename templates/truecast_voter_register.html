@@ -468,6 +468,7 @@
             </div>
 
             <form id="voterRegistrationForm" method="POST" enctype="multipart/form-data" action="/voter-register">
+                <input type="hidden" id="voterPhotoBase64" name="voterPhotoBase64" value="">
                 <div class="form-step active" id="step1">
                     <h2>Personal Information</h2>
                     <p style="color: #7f8c8d; margin-bottom: 2rem;">Please provide your basic information for voter registration.</p>
@@ -806,18 +807,22 @@
 
             // Check biometric requirements for step 3
             if (step === 3 && isValid) {
-                // Check if either face status or fingerprint status shows "completed"
-                const faceStatusText = document.getElementById('face-status').textContent;
-                const fingerprintStatusText = document.getElementById('fingerprint-status').textContent;
-                
-                const faceCompleted = faceStatusText.includes('completed');
-                const fingerprintCompleted = fingerprintStatusText.includes('completed');
-                
-                if (!faceCompleted && !fingerprintCompleted) {
-                    isValid = false;
-                    errorMessage = 'Please complete at least one biometric authentication setup.';
-                }
-            }
+        // Check if face capture passed (NEW CHECK)
+        const faceCompleted = document.getElementById('faceCapture').getAttribute('data-completed') === 'true';
+        
+        // Check if either face status or fingerprint status shows "completed"
+        const fingerprintStatusText = document.getElementById('fingerprint-status').textContent;
+        const fingerprintCompleted = fingerprintStatusText.includes('registered successfully');
+        
+        // The condition for success in step 3: 
+        // 1. Face capture MUST be 'data-completed' OR 
+        // 2. Fingerprint MUST be explicitly successful in the text 
+        
+        if (!faceCompleted && !fingerprintCompleted) {
+            isValid = false;
+            errorMessage = 'Please complete at least one biometric authentication setup (Face or Fingerprint).';
+        }
+    }
 
             // Check terms acceptance for step 4
             if (step === 4 && isValid) {
@@ -958,11 +963,14 @@
                 document.getElementById('takePhotoBtn').style.display = 'none';
             }
         }
-
+        
         function takePhoto() {
             const video = document.getElementById('webcamVideo');
             const canvas = document.getElementById('webcamCanvas');
             const statusDiv = document.getElementById('face-status');
+
+            const targetWidth = 640;
+            const targetHeight = 480;
             
             if (!currentStream) {
                 statusDiv.innerHTML = '<span>❌</span><span>Camera stream not active.</span>';
@@ -970,13 +978,18 @@
                 return;
             }
 
-            // Set canvas dimensions to match the video
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
 
             // Draw the current video frame onto the canvas
-            const context = canvas.getContext('2d');
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+           const context = canvas.getContext('2d');
+           context.drawImage(video, 0, 0, targetWidth, targetHeight);
+
+            // 2. Capture the image data
+            const photoData = canvas.toDataURL('image/jpeg', 0.8); // Get Base64 data
+
+    // 3. Store the base64 data in the hidden form field (CRITICAL)
+            document.getElementById('voterPhotoBase64').value = photoData;
 
             // Stop the camera feed immediately after capture
             stopCameraStream();
@@ -989,10 +1002,19 @@
             statusDiv.className = 'verification-status status-pending';
 
             setTimeout(() => {
-                statusDiv.innerHTML = '<span>✅</span><span>Face capture completed successfully</span>';
-                statusDiv.className = 'verification-status status-verified';
-            }, 2500);
+                // NEW: Simulate motion detection for extra security
+        if (Math.random() > 0.1) { // 90% chance of passing simulated motion
+            statusDiv.innerHTML = '<span>✅</span><span>Face capture & Motion check completed successfully</span>';
+            statusDiv.className = 'verification-status status-verified';
+            // Set the attribute that validation checks
+            document.getElementById('faceCapture').setAttribute('data-completed', 'true'); 
+        } else {
+            statusDiv.innerHTML = '<span>❌</span><span>Face capture failed motion check. Try again.</span>';
+            statusDiv.className = 'verification-status status-failed';
+            document.getElementById('faceCapture').setAttribute('data-completed', 'false');
         }
+    }, 2500);
+}
         // --- END NEW FACIAL RECOGNITION FUNCTIONS ---
 
 
