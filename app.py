@@ -1,6 +1,6 @@
 import os
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, flash
-from datetime import datetime, timezone, timedelta # Ensure timedelta is imported
+from datetime import datetime, timezone, timedelta 
 import random
 import string
 import re
@@ -8,19 +8,25 @@ import json
 import hashlib
 from functools import wraps
 import easyocr
-import io # Needed to read file bytes
-import cv2 # NEW: OpenCV for image processing
-import numpy as np # NEW: Numpy for image arrays
-import google.generativeai as genai # NEW IMPORT
-from flask_mail import Mail, Message # New import
+import io 
+import cv2 
+import numpy as np 
+import google.generativeai as genai 
+from flask_mail import Mail, Message 
 from face_verification import verify_face_match
 from dotenv import load_dotenv
+import hashlib
+from functools import wraps
+import bcrypt
+from cryptography.fernet import Fernet
+import base64
+import os
+
 load_dotenv()
 
 print("DEBUG USER:", os.environ.get('MAIL_USERNAME'))
 print("DEBUG PASS:", os.environ.get('MAIL_PASSWORD'))
 
-# NOTE: document_extracter is assumed to be present for the OCR redirect logic
 try:
     from document_extracter import extract_text_from_file 
 except ImportError:
@@ -28,27 +34,27 @@ except ImportError:
     def extract_text_from_file(*args, **kwargs):
         raise NotImplementedError("document_extracter module is missing.")
 
-# --- NEW: Initialize EasyOCR Reader ---
+# Initialize EasyOCR Reader 
 try:
-    # Using English only as requested for pattern matching
+    # Using English for pattern matching
     ocr_reader = easyocr.Reader(['en']) 
     print("EasyOCR reader loaded successfully (English Only).")
 except Exception as e:
     print(f"Warning: Could not load EasyOCR. OCR route will fail. Error: {e}")
     ocr_reader = None
 
-# --- Configuration & File Setup ---
+# Configuration & File Setup 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 JSON_FILE = os.path.join(BASE_DIR, 'voters.json') # Stores voter profiles
 VOTES_FILE = os.path.join(BASE_DIR, 'votes.json') # Stores cast vote records
 ELECTIONS_FILE = os.path.join(BASE_DIR, 'elections.json') # Stores election details (NEW)
 SECRET_KEY = os.environ.get('SECRET_KEY', 'a_very_secret_key_for_truecast_sessions') 
-
+ENCRYPTION_KEY = os.environ.get('DATA_ENCRYPTION_KEY', 'default_insecure_key_32_bytes_long_')
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
-# --- NEW: Email Configuration ---
-# NOTE: For Gmail, you must use an "App Password", not your regular password.
+# Email Configuration
+# For Gmail, you must use an "App Password", not your regular password.
 # Go to Google Account > Security > 2-Step Verification > App Passwords.
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
@@ -59,6 +65,45 @@ app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_USERNAME', '')
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
 
 mail = Mail(app)
+
+def hash_pin(pin):
+    """Hashes a plaintext PIN using bcrypt."""
+    # bcrypt.gensalt() generates a unique salt and includes it in the hash.
+    # Return the decoded string immediately for storage in JSON.
+    return bcrypt.hashpw(pin.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def check_pin(pin, hashed_pin):
+    """Checks a plaintext PIN against the stored hash."""
+    if not hashed_pin:
+        return False
+    # Ensure both are encoded back to bytes before bcrypt checks them.
+    # The 'hashed_pin' must be a clean string from JSON.
+    return bcrypt.checkpw(pin.encode('utf-8'), hashed_pin.encode('utf-8'))
+
+try:
+    # Fernet keys must be 32 URL-safe base64-encoded bytes
+    key_bytes = base64.urlsafe_b64encode(ENCRYPTION_KEY.encode().ljust(32)[:32])
+    cipher = Fernet(key_bytes)
+except Exception as e:
+    print(f"CRITICAL ERROR: Failed to initialize Fernet cipher. Check DATA_ENCRYPTION_KEY: {e}")
+    cipher = None # Fail gracefully if key is bad
+
+def encrypt_data(data):
+    """Encrypts a string for storage."""
+    if not cipher or not data: return data
+    try:
+        return cipher.encrypt(data.encode()).decode()
+    except Exception:
+        return "ENCRYPTION_FAILED"
+
+def decrypt_data(data):
+    """Decrypts a stored string."""
+    if not cipher or not data: return data
+    try:
+        # If the data is not recognized as Fernet format, treat it as plaintext (legacy/default)
+        return cipher.decrypt(data.encode()).decode()
+    except Exception:
+        return data # Return original data if decryption fails (e.g. if it was plaintext)
 
 @app.after_request
 def add_security_headers(response):
@@ -77,14 +122,14 @@ def add_security_headers(response):
 
     return response
 
-# --- NEW: Gemini API Configuration ---
+# Gemini API Configuration
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 else:
     print("Warning: GEMINI_API_KEY not found in environment variables.")
 
-# --- Configuration for the TRUECAST Bot (Indian Context) ---
+# Configuration for the TRUECAST Bot
 TRUECAST_SYSTEM_PROMPT = """
 You are the official AI support assistant for TRUECAST, a secure blockchain-based digital voting platform for Indian elections.
 Your role is to assist voters with the following tasks:
@@ -101,11 +146,7 @@ GUIDELINES:
 - **LIMITATION:** If you do not know an answer, suggest they visit the 'Help' page or contact the TRUECAST Nodal Officer support.
 """
 
-# Initialize the model with the system instruction
-# --- Robust Model Initialization ---
-# --- Robust Model Initialization (Uses the currently stable 2.5 Flash model) ---
-# We use 'gemini-2.5-flash' as it is the current, fast, and recommended stable version.
-# If this fails, there is a fundamental issue with the API key or service enablement.
+# Model Initialization (Uses the currently stable 2.5 Flash model) ---
 try:
     chat_model = genai.GenerativeModel(
         model_name='gemini-2.5-flash', 
@@ -115,41 +156,30 @@ try:
     
 except Exception as e:
     print(f"CRITICAL ERROR: Could not initialize model gemini-2.5-flash. Details: {e}")
-    # Fallback check for API key
     if not GEMINI_API_KEY:
         print("ACTION REQUIRED: GEMINI_API_KEY is missing. Check your .env file.")
     chat_model = None
 
-# --- NEW: OTP Routes ---
-
 @app.route('/api/send-otp', methods=['POST'])
 def send_otp():
     data = request.get_json()
-    voter_identifier = data.get('voterId') # Can be ID or Email
+    voter_identifier = data.get('voterId') 
     
     if not voter_identifier:
         return jsonify({'success': False, 'error': 'Voter ID is required.'}), 400
 
-    voters = load_voters()
-    target_voter = None
-    
-    # 1. Find the voter and their email
-    for v_id, v_data in voters.items():
-        if v_data.get('voter_id') == voter_identifier or v_data.get('email') == voter_identifier:
-            target_voter = v_data
-            break
+    target_voter = get_voter_by_identifier(voter_identifier)
             
     if not target_voter:
         return jsonify({'success': False, 'error': 'Voter not found.'}), 404
         
-    email = target_voter.get('email')
-    if not email:
-        return jsonify({'success': False, 'error': 'No email address linked to this voter.'}), 400
+    encrypted_email = target_voter.get('email')
+    email = decrypt_data(encrypted_email)
+    if not email or email == "ENCRYPTION_FAILED" or not re.match(r'[^@]+@[^@]+\.[^@]+', email):
+        return jsonify({'success': False, 'error': 'No valid email address linked to this voter.'}), 400
 
-    # 2. Generate 6-digit OTP
     otp = str(random.randint(100000, 999999))
     
-    # 3. Store OTP in session (encrypted cookie) for verification later
     # We also store the voter_id to ensure the OTP is used for the correct user
     session['otp'] = otp
     session['otp_voter_id'] = target_voter['voter_id']
@@ -645,19 +675,29 @@ def voter_register():
                     available_regions=sorted_regions
                 ) 
         # --- END DUPLICATE CHECK LOGIC ---
-
+        raw_pin = data.get('backupPin', '000000')
+        hashed_pin = hash_pin(raw_pin) 
+        
+        raw_answer = data.get('securityAnswer', '')
+        if raw_answer:
+            data['securityAnswer'] = hash_pin(raw_answer)
+        data['idNumber'] = encrypt_data(data.get('idNumber', ''))
+        data['email'] = encrypt_data(new_email)
+        data['phone'] = encrypt_data(data.get('phone', ''))
+        data['address'] = encrypt_data(data.get('address', '')) # Encrypt address too, as it's PII
         # --- FINAL SERVER-SIDE VERIFICATION ---
         ocr_data = session.get('ocr_data', {})
         if ocr_data:
             is_valid, error_message = validate_registration(data, ocr_data)
             if not is_valid:
                 flash(f'Registration Warning: {error_message}', 'warning')
+        
         # If unique, proceed with saving 
         voter_id = f"VS{datetime.now().year}{random.randint(100000, 999999)}"
         data['voter_id'] = voter_id
         data['registration_date'] = datetime.now(timezone.utc).isoformat() # Use aware datetime
         data['status'] = 'Active' 
-        data['backupPin'] = data.get('backupPin', '000000') 
+        data['backupPin'] = hashed_pin
         data['registration_photo'] = voter_photo_b64
         voters[voter_id] = data
         save_voters(voters)
@@ -784,13 +824,7 @@ def verify_face_login():
     if not voter_identifier or not login_photo_b64:
         return jsonify({'success': False, 'error': 'Missing ID or photo data.'}), 400
 
-    # 1. Find the voter and their stored registration photo
-    voters = load_voters()
-    target_voter = None
-    for v_data in voters.values():
-        if v_data.get('voter_id') == voter_identifier or v_data.get('email') == voter_identifier:
-            target_voter = v_data
-            break
+    target_voter = get_voter_by_identifier(voter_identifier)
 
     if not target_voter:
         return jsonify({'success': False, 'error': 'Voter not found.'}), 404
@@ -808,6 +842,11 @@ def verify_face_login():
             session['logged_in'] = True
             session['voter_id'] = target_voter['voter_id']
             # ... (other session data) ...
+            session['email'] = decrypt_data(target_voter.get('email'))
+            session['voter_region'] = target_voter.get('voterRegion')
+            first = target_voter.get('firstName', '')
+            last = target_voter.get('lastName', '')
+            session['full_name'] = f"{first} {last}".strip() or 'Voter'
 
             return jsonify({
                 'success': True, 
@@ -834,18 +873,29 @@ def voter_login():
         authenticated_voter = None
         # --- JSON Database Lookup Logic ---
         for voter_id, voter_data in voters.items():
+            stored_voter_id = voter_data.get('voter_id')
             # Check for match by voter_id OR email
-            if voter_data.get('voter_id') == voter_id_or_email or voter_data.get('email') == voter_id_or_email:
+            if stored_voter_id == voter_id_or_email:
+                authenticated_voter = voter_data
+                break
+            encrypted_email = voter_data.get('email')
+            decrypted_email = decrypt_data(encrypted_email)
+            if decrypted_email == voter_id_or_email:
                 authenticated_voter = voter_data
                 break
         # --- End JSON Database Lookup Logic ---
         if authenticated_voter:
-            stored_pin = authenticated_voter.get('backupPin')
+            stored_hash = authenticated_voter.get('backupPin')
             # This logic handles *both* the initial PIN check *and* the final form submission
             if input_pin:
-                if input_pin != stored_pin:
-                    # Authentication failure: PIN mismatch
+                # --- FIX: Check if the PIN is INCORRECT (check_pin returns False) ---
+                if not stored_hash or not check_pin(input_pin, stored_hash):
+                    # Authentication failure: PIN mismatch or no hash stored
                     return jsonify({"success": False, "error": "Invalid PIN provided. Access denied."}), 401
+                
+                # If we reach this point, the PIN is CORRECT.
+                # The code will now fall through to the successful login establishment block below.
+                
             # If input_pin is None, this means a different auth method was used, 
             # and the frontend is responsible for signaling final success.
             elif not input_pin and 'backupPin' in data:
@@ -855,7 +905,7 @@ def voter_login():
             # Login successful: Establish session
             session['logged_in'] = True # CRITICAL: Set the logged_in flag
             session['voter_id'] = authenticated_voter['voter_id']
-            session['email'] = authenticated_voter.get('email')
+            session['email'] = decrypt_data(authenticated_voter.get('email'))
             # Construct full name reliably from registration fields ---
             first_name = authenticated_voter.get('firstName', '')
             last_name = authenticated_voter.get('lastName', '')
@@ -874,6 +924,26 @@ def voter_login():
             return jsonify({"success": False, "error": "Voter ID or Email not found."}), 404    # Render the login page (including the success message from registration redirect)
     success_msg = request.args.get('success')
     return render_template('truecast_voter_login.html', success=success_msg)
+
+# app.py (New Helper Function)
+def get_voter_by_identifier(identifier):
+    """
+    Looks up a voter by unencrypted voter_id or by decrypting all stored emails.
+    Returns the voter data dict or None.
+    """
+    voters = load_voters()
+    for voter_data in voters.values():
+        # Check 1: Match by UNENCRYPTED Voter ID
+        if voter_data.get('voter_id') == identifier:
+            return voter_data
+        
+        # Check 2: Match by DECRYPTED Email
+        encrypted_email = voter_data.get('email')
+        decrypted_email = decrypt_data(encrypted_email)
+        if decrypted_email == identifier:
+            return voter_data
+            
+    return None
 
 @app.route('/logout')
 def logout():
@@ -944,49 +1014,56 @@ def voting_dashboard():
     full_name = f"{voter_info.get('firstName', '')} {voter_info.get('lastName', '')}"
     
     votes_data = load_votes()
-    
+    active_election_id = active_election['id'] if active_election else 'N/A'
     if request.method == 'POST':
-        # ... (POST request logic remains the same) ...
         data = request.get_json()
         selections = data.get('selections')
-        
-        # Check for duplicate vote (using a unique key including election ID)
-        vote_key = f"{active_election['id']}-{voter_id}"
-        
-        if vote_key in votes_data and votes_data[vote_key].get('transactionHash'):
+        has_voted = voter_info.get('vote_status', {}).get(active_election_id, False)
+        if has_voted:
             return jsonify({'success': False, 'error': 'Your vote has already been cast for this election.', 'transactionHash': 'ALREADY_CAST'})
-
+    
         # FIX for Problem 1: Server-side validation must check against the required list
-        required_race_slugs = [name.replace(' ', '-').lower() for name in final_required_races_list]
-        
+        required_race_slugs = [name.replace(' ', '-').lower() for name in final_required_races_list]        
         for race_slug in required_race_slugs:
             if not selections.get(race_slug):
                 # Attempt to get the original race name for a better error message
                 original_race_name = next((r['name'] for r in filtered_ballot if r['name'].replace(' ', '-').lower() == race_slug), race_slug)
                 return jsonify({'success': False, 'error': f'Please make a selection for the {original_race_name} race.'})
-
-        # Generate the transaction hash and add it to the vote record
-        transaction_hash = f"0x{hashlib.sha256(json.dumps(data).encode()).hexdigest()}"
-        selections['transactionHash'] = transaction_hash
-        selections['electionId'] = active_election['id']
-        selections['timestamp'] = datetime.now(IST).isoformat() # Use aware datetime
-
-        # Save the complete vote record (using the unique vote key)
-        votes_data[vote_key] = selections
+        anonymous_token = hashlib.sha256(os.urandom(32)).hexdigest()
+        transaction_hash = f"0x{hashlib.sha256(json.dumps(selections).encode()).hexdigest()}"
+        vote_record = {
+            'transactionHash': transaction_hash,
+            'electionId': active_election_id,
+            'timestamp': datetime.now(IST).isoformat(),
+            **selections # Store the actual votes
+        }
+        votes_data[anonymous_token] = vote_record 
         save_votes(votes_data)
+
+        if 'vote_status' not in voter_info:
+            voter_info['vote_status'] = {}
+        if 'receipts' not in voter_info:
+            voter_info['receipts'] = {}
+            
+        voter_info['vote_status'][active_election_id] = True
+        encrypted_hash = encrypt_data(transaction_hash)
+        voter_info['receipts'][active_election_id] = encrypted_hash
         
+        save_voters(voters_data) # Update voter's status and receipt
+
         return jsonify({'success': True, 'transactionHash': transaction_hash})
 
-    # GET request logic
-    vote_key = f"{active_election['id']}-{voter_id}"
-    has_voted = False
+    has_voted = voter_info.get('vote_status', {}).get(active_election_id, False)
+    
+    # Retrieve the transaction hash from the voter's record for display (if voted)
     previous_votes = {}
-    
-    if vote_key in votes_data:
-        if votes_data[vote_key].get('transactionHash'):
-            has_voted = True
-            previous_votes = votes_data[vote_key]
-    
+    if has_voted:
+        # We only need the transaction hash for the front-end to display the receipt link
+        encrypted_hash = voter_info.get('receipts', {}).get(active_election_id)
+        tx_hash = decrypt_data(encrypted_hash)
+        if tx_hash and tx_hash != "ENCRYPTION_FAILED":
+             previous_votes = {'transactionHash': tx_hash} # Mimic the old structure for previous_votes
+
     return render_template(
         'truecast_voting_dashboard.html',
         voter_id=voter_id,
@@ -1056,14 +1133,28 @@ def verify_vote():
     all_votes = load_votes()
     # Find a cast vote matching the hash or voter ID
     vote_record = None
-    voter_id_found = None
-    for vote_key, vote_details in all_votes.items():
-        voter_id_part = vote_key.split('-')[-1] # Extract voter ID from the composite key
-        # Check if the query matches the voter's ID or their transaction hash
-        if voter_id_part == query or (isinstance(vote_details, dict) and vote_details.get('transactionHash') == query):
-            voter_id_found = voter_id_part
+    voter_id_found = "Voter ID is kept anonymous for security."
+    for anonymous_key, vote_details in all_votes.items():
+        if isinstance(vote_details, dict) and vote_details.get('transactionHash') == query:
             vote_record = vote_details
+            breakrecord = vote_details
             break
+    if not vote_record and query.startswith('VS'): # Check if it looks like a Voter ID
+        voters_data = load_voters()
+        voter_info = voters_data.get(query)
+        
+        if voter_info:
+            # Attempt to find the transaction hash associated with the *latest* election receipt
+            # NOTE: This only works if the voter has already voted and the hash is stored in the receipt field.
+            latest_receipt = next(iter(reversed(list(voter_info.get('receipts', {}).values()))), None)
+            
+            if latest_receipt:
+                # Now search votes.json by the hash we found in the voter's record
+                for anonymous_key, vote_details in all_votes.items():
+                    if vote_details.get('transactionHash') == latest_receipt:
+                        vote_record = vote_details
+                        voter_id_found = query # Only display ID if search originated from ID
+                        break
     if vote_record:
         # Get the associated election name
         election_id = vote_record.get('electionId')
