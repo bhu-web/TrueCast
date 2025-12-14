@@ -1163,11 +1163,13 @@ def verify_vote():
             election = get_election_by_id(election_id)
             if election:
                 election_name = election.get('title', f"Election {election_id}")
+        stored_timestamp = vote_record.get('timestamp')
+        display_timestamp = stored_timestamp if stored_timestamp else datetime.now(IST).isoformat()
         # Construct the response using the found vote record
         demo_vote_data = {
             "voterId": voter_id_found,
             "election": election_name,
-            "timestamp": vote_record.get('timestamp', datetime.now(timezone.utc).isoformat()),
+            "timestamp": display_timestamp,
             "status": "Confirmed",
             "transactionHash": vote_record.get('transactionHash', 'N/A'),
             "blockNumber": random.randint(10000, 20000), 

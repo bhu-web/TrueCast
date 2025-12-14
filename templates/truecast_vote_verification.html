@@ -413,10 +413,10 @@
             <div class="main-content">
                 <div class="search-section">
                     <h2>Verify Your Vote</h2>
-                    <p style="color: #7f8c8d; margin-bottom: 1rem;">Enter your transaction hash or voter ID to verify your vote was recorded correctly.</p>
+                    <p style="color: #7f8c8d; margin-bottom: 1rem;">Enter your transaction hash to verify your vote was recorded correctly.</p>
                     
                     <div class="search-form">
-                        <input type="text" id="searchInput" class="search-input" placeholder="Enter transaction hash or voter ID..." aria-label="Transaction hash or Voter ID">
+                        <input type="text" id="searchInput" class="search-input" placeholder="Enter transaction hash" aria-label="Transaction hash">
                         <button id="searchBtn" class="btn btn-primary" onclick="verifyVote()" aria-label="Verify Vote">
                             <span id="searchBtnText">Verify Vote</span>
                             <span id="searchSpinner" style="display: none;" class="loading-spinner" aria-hidden="true"></span>
@@ -426,7 +426,6 @@
                     <div class="search-examples">
                         <strong>Examples:</strong><br>
                         • Transaction Hash: 0x2f5a7b8c9d1e3f4a5b6c7d8e9f1a2b3c4d5e6f7a8b9c<br>
-                        • Voter ID: VS2025001234
                     </div>
                 </div>
 
@@ -532,7 +531,7 @@
                     <h3>📋 How It Works</h3>
                     <div class="guide-section">
                         <div class="guide-title">1. Enter Hash/ID</div>
-                        <div class="guide-text">Input your transaction hash or voter ID in the search field above.</div>
+                        <div class="guide-text">Input your transaction hash in the search field above.</div>
                     </div>
                     <div class="guide-section">
                         <div class="guide-title">2. Blockchain Lookup</div>
@@ -607,9 +606,31 @@
         // Utility to safely format timestamps
         function formatTimestamp(timestamp) {
             if (!timestamp) return '—';
+            
+            // Check for the timezone offset, if it's not explicitly Z (Zulu/UTC)
+            // If the ISO string contains a timezone offset (like +05:30), 
+            // the Date object interprets it correctly as local time.
             const date = new Date(timestamp);
-            if (isNaN(date)) return String(timestamp); // Return original if invalid
-            return date.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+            if (isNaN(date)) return String(timestamp); 
+
+            const options = {
+                year: 'numeric',
+                month: 'short',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                // CRITICAL: Set the timezone to display
+                timeZoneName: 'short', 
+                timeZone: 'Asia/Kolkata' // Corresponds to IST/India Time
+            };
+
+            // Use the Indian locale ('en-IN') for formatting conventions
+            let formattedDate = new Intl.DateTimeFormat('en-IN', options).format(date);
+            
+            // Fix: Replace the generic 'IST' with the explicit offset for clarity if needed, 
+            // but the Intl object handles it by displaying the correct time zone abbreviation (e.g., IST).
+            return formattedDate;
         }
 
         async function verifyVote() {
@@ -712,7 +733,7 @@
 
 Voter ID: ${document.getElementById('voterIdDisplay').textContent}
 Election: ${document.getElementById('electionDisplay').textContent}
-Vote Time: ${document.getElementById('voteTimeDisplay').textContent}
+Vote Time: ${document.getElementById('voteTimeDisplay').textContent} 
 Status: ${document.getElementById('voteStatusDisplay').textContent}
 
 Transaction Hash: ${document.getElementById('transactionHashDisplay').textContent}
@@ -721,7 +742,7 @@ Confirmations: ${document.getElementById('confirmations').textContent}
 
 This receipt serves as proof that your vote was successfully recorded on the blockchain.
 
-Generated on: ${new Date().toLocaleString()}
+Generated on: ${formatTimestamp(new Date().toISOString())}
 =========================================`;
 
             const blob = new Blob([content], { type: 'text/plain' });
