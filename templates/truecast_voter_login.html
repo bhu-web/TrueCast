@@ -566,14 +566,6 @@
                         <span class="step-icon">⏳</span>
                         <span>Multi-Factor Authentication</span>
                     </div>
-                    <div class="step" id="step3">
-                        <span class="step-icon">⏳</span>
-                        <span>Geo-Location Verification</span>
-                    </div>
-                    <div class="step" id="step4">
-                        <span class="step-icon">⏳</span>
-                        <span>Blockchain Authentication</span>
-                    </div>
                 </div>
 
                 <div class="error-message" id="errorMessage"></div>
@@ -978,8 +970,7 @@ function captureAndVerifyLoginFace() {
             let stepId;
             if (stepName === 'identity') { stepId = 'step1'; }
             else if (stepName === 'mfa') { stepId = 'step2'; }
-            else if (stepName === 'geo') { stepId = 'step3'; }
-            else if (stepName === 'blockchain') { stepId = 'step4'; }
+    
             else { return; }
             
             const step = document.getElementById(stepId);

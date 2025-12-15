@@ -1,21 +1,24 @@
-# face_verification.py
+# face_verification.py (ROBUST IMPLEMENTATION using DeepFace)
 
 import cv2
 import numpy as np
-from io import BytesIO
-from PIL import Image
 import base64
+from deepface import DeepFace # <<< NEW IMPORT
 
 def preprocess_image_data(base64_img_string):
     """
     Decodes a base64 string (from client-side JavaScript) into a NumPy array
-    compatible with OpenCV.
+    compatible with OpenCV/DeepFace.
     """
     try:
         # 1. Clean up base64 string
         # Expecting 'data:image/png;base64,...'
-        _, img_data = base64_img_string.split(',')
-        
+        # Handles cases where the prefix is not present too
+        if 'base64,' in base64_img_string:
+            _, img_data = base64_img_string.split(',', 1)
+        else:
+            img_data = base64_img_string
+            
         # 2. Decode the base64 string
         binary_data = base64.b64decode(img_data)
         
@@ -36,57 +39,50 @@ def preprocess_image_data(base64_img_string):
 
 def verify_face_match(registration_img_b64, login_img_b64):
     """
-    Performs face detection and a simple image comparison (MSE) between two images.
+    Performs robust face verification using the DeepFace library.
     
     Args:
-        registration_img_b64 (str): Base64 string of the photo captured during registration.
-        login_img_b64 (str): Base64 string of the photo captured during login.
+        registration_img_b64 (str): Base64 string of the registration photo.
+        login_img_b64 (str): Base64 string of the login photo.
         
     Returns:
-        tuple: (bool success, str message, float score)
+        tuple: (bool success, str message, float score/distance)
     """
-    # Load the pre-trained face detector (Haar Cascades is simple and fast, good for Approach 1)
-    # NOTE: This requires 'haarcascade_frontalface_default.xml' to be available. 
-    # For this simplified model, we will use a simulation or assume the cascade file is present.
-    
-    # --- SIMULATED FACE DETECTION (due to missing cascade file) ---
+    # 1. Decode images using the existing function
     reg_img = preprocess_image_data(registration_img_b64)
     log_img = preprocess_image_data(login_img_b64)
     
     if reg_img is None or log_img is None:
         return False, "Failed to decode one or both images.", 0.0
 
-    # For a real implementation, you would run face detection here:
-    # face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
-    # gray_reg = cv2.cvtColor(reg_img, cv2.COLOR_BGR2GRAY)
-    # faces_reg = face_cascade.detectMultiScale(gray_reg, 1.1, 4)
-    # ... and crop faces before comparison
+    try:
+        # 2. Perform DeepFace verification
+        # DeepFace handles face detection, alignment, embedding, and comparison.
+        # 'VGG-Face' is a highly accurate and standard model.
+        # 'cosine' distance: 0.0 is a perfect match.
+        result = DeepFace.verify(
+            img1_path = reg_img, 
+            img2_path = log_img, 
+            model_name = 'VGG-Face', 
+            detector_backend = 'opencv',
+            distance_metric = 'cosine',
+            enforce_detection = True # Fails if no face is detected, which is desirable for security
+        )
 
-    # --- Simple Mean Squared Error (MSE) comparison of the full images (UNRELIABLE BUT SIMPLE) ---
-    # Convert to grayscale for simple comparison
-    gray_reg = cv2.cvtColor(reg_img, cv2.COLOR_BGR2GRAY)
-    gray_log = cv2.cvtColor(log_img, cv2.COLOR_BGR2GRAY)
-    
-    # Resize the smaller image to match the larger one (CRITICAL for comparison)
-    h_reg, w_reg = gray_reg.shape[:2]
-    h_log, w_log = gray_log.shape[:2]
-    
-    if h_reg != h_log or w_reg != w_log:
-        # Resize login image to match registration image size for MSE
-        gray_log = cv2.resize(gray_log, (w_reg, h_reg), interpolation=cv2.INTER_AREA)
+        is_match = result['verified']
+        distance = result['distance'] # Score is now a distance metric
+        threshold = result['threshold']
+        
+        if is_match:
+            return True, f"Face verified successfully (Distance: {distance:.4f} < Threshold: {threshold:.4f}).", round(distance, 4)
+        else:
+            return False, f"Verification failed. Distance: {distance:.4f} (Threshold: {threshold:.4f}).", round(distance, 4)
 
-    # Calculate MSE: the lower the value, the closer the match
-    err = np.sum((gray_reg.astype("float") - gray_log.astype("float")) ** 2)
-    err /= float(gray_reg.shape[0] * gray_reg.shape[1])
-    
-    # Thresholding: Lower MSE means a better match. 
-    # We use a high threshold (e.g., 5000) because MSE on full images is very volatile.
-    # In a real app, a much smaller face patch would be compared.
-    MSE_THRESHOLD = 5000.0 
-    
-    match = err < MSE_THRESHOLD
-    
-    if match:
-        return True, "Face verified successfully (Simple MSE Match).", round(err, 2)
-    else:
-        return False, f"Face verification failed. Score: {round(err, 2)} (Threshold: {MSE_THRESHOLD}).", round(err, 2)
+    except ValueError as e:
+        # DeepFace raises ValueError if face detection fails (due to enforce_detection=True)
+        if 'Face could not be detected' in str(e):
+             return False, "Verification failed: A clear face could not be detected in one of the photos.", 1.0 
+        return False, f"An unexpected verification error occurred: {e}", 1.0
+
+    except Exception as e:
+        return False, f"Internal verification error: {e}", 1.0
