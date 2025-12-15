@@ -337,7 +337,17 @@
         color: #b91c1c;
         border-color: #fca5a5;
       }
-      /* END NEW CSS */
+      .status-published {
+      background: #ccfbf1; /* Light cyan/teal */
+      color: #0f766e; /* Dark teal */
+      }
+
+      /* Ensure the button is small for the table */
+      .btn-sm {
+          padding: 0.4rem 0.8rem;
+          font-size: 0.8rem;
+          line-height: 1;
+      }
     </style>
   </head>
   <body>
@@ -376,236 +386,229 @@
     </div>
 
     <div class="container">
-      {% with messages = get_flashed_messages(with_categories=true) %}
+    {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
-            <div style="margin-bottom: 1.5rem;">
             {% for category, message in messages %}
-                <div class="flash-message flash-{{ category }}">
+                <div class="flash-message flash-{{ category }}" style="margin-bottom: 2rem;">
+                    {% if category == 'success' %}
+                        ✅
+                    {% elif category == 'error' %}
+                        ⚠️
+                    {% endif %}
                     {{ message }}
                 </div>
             {% endfor %}
-            </div>
         {% endif %}
-      {% endwith %}
-      <div class="tab-content active" id="overview">
+    {% endwith %}
+    <div class="tab-content active" id="overview">
         <div class="stats-overview">
-          <div class="stat-card">
-            <div class="stat-header"><span class="stat-icon">👥</span></div>
-            <div class="stat-value">{{ total_voters }}</div>
-            <div class="stat-label">Registered Voters</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-header"><span class="stat-icon">🗳️</span></div>
-            <div class="stat-value">{{ total_votes_cast }}</div>
-            <div class="stat-label">Total Votes Cast (All Elections)</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-header"><span class="stat-icon">📊</span></div>
-            <div class="stat-value">{{ turnout | round(2) }}%</div>
-            <div class="stat-label">Overall Turnout Rate</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-header"><span class="stat-icon">⛓️</span></div>
-            <div class="stat-value">99.9%</div>
-            <div class="stat-label">Blockchain Integrity</div>
-          </div>
-        </div>
+            <div class="stat-card">
+                <div class="stat-header"><span class="stat-icon">👥</span></div>
+                <div class="stat-value">{{ total_voters }}</div>
+                <div class="stat-label">Registered Voters</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-header"><span class="stat-icon">🗳️</span></div>
+                <div class="stat-value">{{ total_votes_cast }}</div>
+                <div class="stat-label">Total Votes Cast (All Elections)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-header"><span class="stat-icon">📊</span></div>
+                <div class="stat-value">{{ turnout | round(2) }}%</div>
+                <div class="stat-label">Overall Turnout Rate</div>
+            </div>
+            <div class="stat-card" style="border-left: 4px solid #f1c40f;">
+                <div class="stat-header"><span class="stat-icon">🥇</span></div>
+                <div class="stat-value">{{ active_election_races }} / {{ active_election_candidates }}</div>
+                <div class="stat-label">Active Races / Candidates</div>
+            </div>
+            </div>
 
         <div class="monitoring-grid">
-          <div class="chart-container">
-            <h3 style="color: #2c3e50; margin-bottom: 1rem">Election Data Visualization</h3>
-            <div class="form-group" style="margin-bottom: 1.5rem;">
-                <select id="electionSelector" class="search-input" style="width: 100%;" onchange="fetchChartData(this.value)">
-                    <option value="N/A" disabled>--- Select an Election ---</option>
-                    {% for election in all_elections_list %}
-                        <option value="{{ election.id }}" {% if election.id == initial_election_id %}selected{% endif %}>
-                            {{ election.title }} ({% if election.published_results %}Published{% else %}{{ election.status }}{% endif %})
-                        </option>
-                    {% endfor %}
-                    {% if not all_elections_list %}
-                        <option value="N/A">No Elections Found</option>
-                    {% endif %}
-                </select>
+            <div class="chart-container">
+                <h3 style="color: #2c3e50; margin-bottom: 1rem">Election Data Visualization</h3>
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <select id="electionSelector" class="search-input" style="width: 100%;" onchange="fetchChartData(this.value)">
+                        <option value="N/A" disabled>--- Select an Election ---</option>
+                        {% for election in all_elections_list %}
+                            <option value="{{ election.id }}" {% if election.id == initial_election_id %}selected{% endif %}>
+                                {{ election.title }} ({% if election.published_results %}Published{% else %}{{ election.status }}{% endif %})
+                            </option>
+                        {% endfor %}
+                        {% if not all_elections_list %}
+                            <option value="N/A">No Elections Found</option>
+                        {% endif %}
+                    </select>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;">
+                    <div>
+                        <h4 id="barChartTitle" style="color: #3498db; margin-bottom: 0.5rem;">Vote Distribution (Top Race)</h4>
+                        <div style="height: 300px;"><canvas id="barChart"></canvas></div>
+                    </div>
+                    <div>
+                        <h4 style="color: #3498db; margin-bottom: 0.5rem;">Voter Turnout Overview</h4>
+                        <div style="width: 250px; margin: 0 auto;"><canvas id="pieChart"></canvas></div>
+                    </div>
+                </div>
             </div>
-            
-            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;">
-                <div>
-                    <h4 id="barChartTitle" style="color: #3498db; margin-bottom: 0.5rem;">Vote Distribution (Top Race)</h4>
-                    <div style="height: 300px;"><canvas id="barChart"></canvas></div>
+            <div class="activity-feed">
+                <h3 style="color: #2c3e50; margin-bottom: 1rem">
+                    Recent Registrations
+                </h3>
+                {% for voter in recent_registrations %}
+                <div class="activity-item">
+                    <div class="activity-icon registration">👤</div>
+                    <div class="activity-content">
+                        <div class="activity-title">
+                            {{ voter.firstName }} {{ voter.lastName }}
+                        </div>
+                        <div class="activity-description">
+                            Voter ID: {{ voter.voter_id }}
+                        </div>
+                    </div>
                 </div>
-                <div>
-                    <h4 style="color: #3498db; margin-bottom: 0.5rem;">Voter Turnout Overview</h4>
-                    <div style="width: 250px; margin: 0 auto;"><canvas id="pieChart"></canvas></div>
-                </div>
+                {% else %}
+                <p>No recent registrations.</p>
+                {% endfor %}
             </div>
-          </div>
-          <div class="activity-feed">
-            <h3 style="color: #2c3e50; margin-bottom: 1rem">
-              Recent Registrations
-            </h3>
-            {% for voter in recent_registrations %}
-            <div class="activity-item">
-              <div class="activity-icon registration">👤</div>
-              <div class="activity-content">
-                <div class="activity-title">
-                  {{ voter.firstName }} {{ voter.lastName }}
-                </div>
-                <div class="activity-description">
-                  Voter ID: {{ voter.voter_id }}
-                </div>
-              </div>
-            </div>
-            {% else %}
-            <p>No recent registrations.</p>
-            {% endfor %}
-          </div>
         </div>
-      </div>
+    </div>
 
-      <div class="tab-content" id="voters">
+    <div class="tab-content" id="voters">
         <div class="management-header">
-          <h2>Voter Management</h2>
-          <input
-            type="text"
-            id="voterSearch"
-            class="search-input"
-            placeholder="Search by name or Voter ID..."
-          />
+            <h2>Voter Management ({{ all_voters | length }} Registered)</h2>
+            <input 
+                type="text" 
+                id="voterSearch" 
+                class="search-input" 
+                placeholder="Search by ID or Name..." 
+            />
         </div>
+
         <div class="data-table">
-          <table class="table" id="voterTable">
-            <thead>
-              <tr>
-                <th>Voter ID</th>
-                <th>Name</th>
-                <th>Region</th>
-                <th>Status</th>
-                <th>Registration Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for voter in all_voters %}
-              <tr>
-                <td>{{ voter.voter_id }}</td>
-                <td>{{ voter.firstName }} {{ voter.lastName }}</td>
-                <td>{{ voter.voterRegion or 'N/A' }}</td>
-                <td>
-                  <span class="status-badge status-active"
-                    >{{ voter.status or 'Active' }}</span
-                  >
-                </td>
-                <td>
-                  {{ voter.registration_date.split('T')[0] if
-                  voter.registration_date else 'N/A' }}
-                </td>
-              </tr>
-              {% else %}
-              <tr>
-                <td colspan="6">No voters found.</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+            <table class="table" id="voterTable">
+                <thead>
+                    <tr>
+                        <th>Voter ID</th>
+                        <th>Name</th>
+                        <th>Region</th>
+                        <th>Registration Date</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for voter in all_voters %}
+                    <tr>
+                        <td>{{ voter.voter_id }}</td>
+                        <td>{{ voter.firstName }} {{ voter.lastName }}</td>
+                        
+                        <td>{{ voter.voterRegion }}</td>
+                        <td>{{ voter.registration_date.split('T')[0] }}</td>
+                        <td>
+                            <span class="status-badge 
+                                {% if voter.status == 'Active' %}status-active{% else %}status-ended{% endif %}">
+                                {{ voter.status }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" style="text-align: center;">No registered voters found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-      </div>
+    </div>
 
-      <div class="tab-content" id="elections">
+
+    <div class="tab-content" id="elections">
         <div class="management-header">
-          <h2>Election Management</h2>
-          <div style="display: flex; gap: 10px;">
-            <form method="POST" action="/admin/check-integrity" style="display:inline;">
-                <button type="submit" class="btn btn-primary" onclick="return confirm('Running a full audit may take a moment. Proceed?')" style="background: #e67e22;">
-                    Audit Vote Chain Now ⛓️
-                </button>
-            </form>
-            <a href="/admin/create-election" class="btn btn-success">Create New Election</a>
-          </div>
+            <h2>Election Management</h2>
+            <div style="display: flex; gap: 10px;">
+            
+                <a href="/admin/create-election" class="btn btn-success">Create New Election</a>
+            </div>
         </div>
         
         <div class="data-table">
-          <table class="table" id="electionTable">
-            <thead>
-              <tr>
-                <th>Election Title</th>
-                <th>ID</th>
-                <th>Status</th>
-                <th>Start Date</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for election in elections %}
-              <tr>
-                <td>{{ election.title }}</td>
-                <td>{{ election.id }}</td>
-                <td>
-                  <span class="status-badge {% if election.status == 'Active' %}status-active{% elif election.published_results %}status-published{% else %}status-ended{% endif %}">
-                    {% if election.published_results %}Published{% else %}{{ election.status }}{% endif %}
-                  </span>
-                </td>
-                <td>{{ election.startDate.split('T')[0] }}</td>
-                <td>
-                  {% if election.status == 'Active' %}
-                    <a href="/admin/results?election_id={{ election.id }}" class="btn btn-primary btn-sm">View Live Results</a>
-                    <form method="POST" action="/admin/end-election/{{ election.id }}" style="display:inline; margin-left: 5px;">
-                      <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to END the {{ election.title }} election? This cannot be undone.')">
-                        End Election
-                      </button>
-                    </form>
-                  {% elif not election.published_results %}
-                    <a href="/admin/results?election_id={{ election.id }}" class="btn btn-primary btn-sm">Review Final Results</a>
-                    <form method="POST" action="/admin/publish-results/{{ election.id }}" style="display:inline; margin-left: 5px;">
-                      <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Certify and PUBLISH results for {{ election.title }}? This action is public.')">
-                        Publish Results
-                      </button>
-                    </form>
-                  {% else %}
-                    <a href="/admin/results?election_id={{ election.id }}" class="btn btn-primary btn-sm">View Published Results</a>
-                  {% endif %}
-                </td>
-              </tr>
-              {% else %}
-              <tr>
-                <td colspan="5">No elections found.</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+            <table class="table" id="electionTable">
+                <thead>
+                    <tr>
+                        <th>Election Title</th>
+                        <th>ID</th>
+                        <th>Status</th>
+                        <th>Votes Cast</th> <th>Start Date</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for election in elections %}
+                    <tr {% if election.status == 'Active' %}style="background: #e6f7ff; font-weight: 600;"{% endif %}>
+                        <td>{{ election.title }}</td>
+                        <td>{{ election.id }}</td>
+                        <td>
+                            <span class="status-badge 
+                                {% if election.status == 'Active' %}status-active
+                                {% elif election.published_results %}status-published
+                                {% else %}status-ended{% endif %}">
+                                {% if election.status == 'Active' %}LIVE{% elif election.published_results %}PUBLISHED{% else %}ENDED{% endif %}
+                            </span>
+                        </td>
+                        <td>{{ election.total_votes }}</td> <td>{{ election.startDate.split('T')[0] }}</td>
+                        <td>
+                            <a href="/admin/results?election_id={{ election.id }}" class="btn btn-primary btn-sm">
+                                {% if election.status == 'Active' %}
+                                    View Live Results
+                                {% else %}
+                                    View Results
+                                {% endif %}
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6">No elections found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
         
         {% if active_election %}
         <h3 style="margin-top: 3rem; color: #2c3e50;">Active Election Overview</h3>
         <div class="election-card">
-          <div class="election-header">
-            <h3 class="election-title">{{ active_election.title }}</h3>
-            <span class="election-status election-active">{{ active_election.status }}</span>
-          </div>
-          <div class="election-details">
-            <div>
-              <div class="election-detail-value">{{ active_election_votes }}</div>
-              <div class="election-detail-label">Total Votes Cast (Active Election)</div>
+            <div class="election-header">
+                <h3 class="election-title">{{ active_election.title }}</h3>
+                <span class="election-status election-active">{{ active_election.status }}</span>
             </div>
-            <div>
-              <div class="election-detail-value">{{ total_voters }}</div>
-              <div class="election-detail-label">Eligible Voters</div>
+            <div class="election-details">
+                <div>
+                    <div class="election-detail-value">{{ active_election_votes }}</div>
+                    <div class="election-detail-label">Total Votes Cast (Active Election)</div>
+                </div>
+                <div>
+                    <div class="election-detail-value">{{ total_voters }}</div>
+                    <div class="election-detail-label">Eligible Voters</div>
+                </div>
+                <div>
+                    <div class="election-detail-value">{{ active_election.endDate.split('T')[0] }}</div>
+                    <div class="election-detail-label">Closing Date</div>
+                </div>
             </div>
-            <div>
-              <div class="election-detail-value">{{ active_election.endDate.split('T')[0] }}</div>
-              <div class="election-detail-label">Closing Date</div>
+            <div class="election-actions">
+                <a href="/admin/results?election_id={{ active_election.id }}" class="btn btn-primary">View Live Results</a> 
+                <form method="POST" action="/admin/end-election/{{ active_election.id }}" style="display:inline;">
+                    <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure you want to END the {{ active_election.title }} election? This cannot be undone.')">
+                        End Election
+                    </button>
+                </form>
             </div>
-          </div>
-          <div class="election-actions">
-    <a href="/admin/results" class="btn btn-primary">View Live Results</a> 
-    <form method="POST" action="/admin/end-election/{{ active_election.id }}" style="display:inline;">
-        <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure you want to END the {{ active_election.title }} election? This cannot be undone.')">
-            End Election
-        </button>
-    </form>
-</div>
         </div>
         {% endif %}
-      </div>
     </div>
+</div>
 
     <script>
       function showTab(tabName) {
@@ -767,6 +770,61 @@
                 const initialTitle = selector.options[selector.selectedIndex].text.split('(')[0].trim();
                 document.getElementById('barChartTitle').textContent = `Vote Distribution: ${initialTitle}`;
             }
+        });
+        async function decryptVoterEmail(voterId) {
+            const emailSpan = document.getElementById(`email-${voterId}`);
+            const originalText = emailSpan.textContent;
+            emailSpan.textContent = 'Decrypting...'; // Show loading state
+
+            try {
+                const response = await fetch(`/api/admin/decrypt-email/${voterId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    emailSpan.textContent = data.email; // Display decrypted email
+                    // Temporarily reset after 15 seconds for security
+                    setTimeout(() => {
+                        emailSpan.textContent = originalText;
+                    }, 15000); 
+                } else {
+                    emailSpan.textContent = originalText;
+                    alert('Decryption failed: ' + (data.error || 'Check server logs.'));
+                }
+
+            } catch (error) {
+                console.error('Decryption error:', error);
+                emailSpan.textContent = originalText;
+                alert('An error occurred during decryption.');
+            }
+        }
+        
+// Initialize charts on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // ... (existing code for chart initialization) ...
+            renderPieChart(TURNOUT_DATA_INIT);
+            renderBarChart(BAR_CHART_DATA_INIT);
+            
+            // Auto-select initial election data if available
+            const selector = document.getElementById('electionSelector');
+            const initialId = selector.value;
+            
+            if (initialId && initialId !== 'N/A') {
+                // Fetch data for the initial election upon load to ensure charts populate
+                fetchChartData(initialId);
+                const initialTitle = selector.options[selector.selectedIndex].text.split('(')[0].trim();
+                document.getElementById('barChartTitle').textContent = `Vote Distribution: ${initialTitle}`;
+            }
+            
+            // Ensure the correct tab is shown on load (Overview is default)
+            showTab('overview'); 
         });
     </script>
   </body>

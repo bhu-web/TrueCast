@@ -1322,24 +1322,36 @@ def admin_dashboard():
     voters_data = load_voters()
     votes_data = load_votes()
     elections = load_elections() 
-
-    # 1. FIX UnboundLocalError: Always initialize active_election
     active_election = get_active_election()
-
-    # 2. Calculate key metrics
     total_voters = len(voters_data)
     total_votes_cast = len(votes_data) # Total votes across ALL elections
-    
-    # 3. FIX Incorrect Vote Count: Calculate votes for ONLY the Active Election
     active_election_votes = 0
+    active_election_races = 0 
+    active_election_candidates = 0
     if active_election:
         active_election_id = active_election['id']
+        active_election_races = len(active_election.get('races', [])) # Count races
+        active_election_candidates = sum(
+            len(race.get('candidates', [])) 
+            for race in active_election.get('races', [])
+        )
         for vote in votes_data.values():
-            if isinstance(vote, dict) and vote.get('electionId') == active_election_id:
-                active_election_votes += 1
-    
+                if isinstance(vote, dict) and vote.get('electionId') == active_election_id:
+                    active_election_votes += 1
+        
     turnout = (total_votes_cast / total_voters * 100) if total_voters > 0 else 0
-
+    election_vote_counts = {}
+    for vote in votes_data.values():
+        election_id = vote.get('electionId')
+        if election_id:
+            election_vote_counts[election_id] = election_vote_counts.get(election_id, 0) + 1
+            
+    # Iterate through elections to add the calculated vote count
+    elections_for_template = []
+    for election in elections:
+        election_id = election.get('id')
+        election['total_votes'] = election_vote_counts.get(election_id, 0) # Attach votes
+        elections_for_template.append(election)
     # Get recent registrations (last 5)
     try:
         recent_registrations = sorted(
@@ -1352,23 +1364,6 @@ def admin_dashboard():
 
     # Vote distribution (aggregated across all elections for overview)
     results = {}
-    
-    # Simple count across all elections for aggregate dashboard data
-    for vote in votes_data.values():
-        if isinstance(vote, dict):
-            for race_slug, candidate_slug in vote.items():
-                # Use standard metadata keys
-                if race_slug not in ['transactionHash', 'electionId', 'timestamp']:
-                    # Use race slug for display name, though this should ideally come from the election model
-                    race_display = race_slug.replace('-', ' ').title()
-                    
-                    # FIX: Explicitly ensure the nested dictionary exists using setdefault
-                    race_tally = results.setdefault(race_display, {})
-                    
-                    # Increment the vote count for the candidate within that race
-                    race_tally[candidate_slug] = race_tally.get(candidate_slug, 0) + 1 
-    
-    # 1. Turnout Data (Pie Chart)
     voted_count = total_votes_cast
     not_voted_count = total_voters - total_votes_cast
     
@@ -1377,22 +1372,30 @@ def admin_dashboard():
         'data': [voted_count, not_voted_count]
     }
     
-    # 2. Top Race Distribution Data (Bar Chart)
-    bar_chart_data = {'labels': ['No Races'], 'datasets': []} # Added default labels
+    bar_chart_data = {'labels': ['No Races'], 'datasets': []} 
     
-    if results:
-        # Find the race with the most candidates or highest total votes (simple: choose first one)
-        top_race_slug = next(iter(results.keys()), None)
-        
-        if top_race_slug:
-            race_data = results[top_race_slug]
+    if votes_data:
+        # Simple count across all elections for aggregate dashboard data
+        for vote in votes_data.values():
+            if isinstance(vote, dict):
+                for race_slug, candidate_slug in vote.items():
+                    if race_slug not in ['transactionHash', 'electionId', 'timestamp', 'previous_hash', 'current_hash']:
+                        race_display = race_slug.replace('-', ' ').title()
+                        race_tally = results.setdefault(race_display, {})
+                        race_tally[candidate_slug] = race_tally.get(candidate_slug, 0) + 1 
+
+        if results:
+            top_race_slug = next(iter(results.keys()), None)
             
-            bar_chart_data['labels'] = list(race_data.keys()) # Candidate names
-            bar_chart_data['datasets'].append({
-                'label': top_race_slug, # Use the race title as the dataset label
-                'data': list(race_data.values()), # Vote counts
-                'backgroundColor': ['#3498db', '#27ae60', '#f1c40f', '#e74c3c'] 
-            })
+            if top_race_slug:
+                race_data = results[top_race_slug]
+                
+                bar_chart_data['labels'] = list(race_data.keys())
+                bar_chart_data['datasets'].append({
+                    'label': top_race_slug,
+                    'data': list(race_data.values()),
+                    'backgroundColor': ['#3498db', '#27ae60', '#f1c40f', '#e74c3c'] 
+                })
 
 
     return render_template(
@@ -1400,15 +1403,19 @@ def admin_dashboard():
         total_voters=total_voters,
         total_votes_cast=total_votes_cast,
         turnout=turnout,
+        # NEW KPIs
+        active_election_races=active_election_races, 
+        active_election_candidates=active_election_candidates,
+        # END NEW KPIs
         recent_registrations=recent_registrations,
         all_voters=voters_data.values(),
-        elections=elections, # NEW: Pass all elections for the management table
-        all_elections_list=elections, # FIX for Problem 2: Pass all elections for the dropdown
-        active_election=active_election, # NEW: Pass active election for display
-        active_election_votes=active_election_votes, # FIX: Pass active election votes
+        elections=elections_for_template, # Use the enhanced list
+        all_elections_list=elections,
+        active_election=active_election,
+        active_election_votes=active_election_votes,
         results=results,
-        turnout_data=turnout_data,   # NEW: Pass Turnout Data
-        bar_chart_data=bar_chart_data # NEW: Pass Bar Chart Data
+        turnout_data=turnout_data,
+        bar_chart_data=bar_chart_data
     )
 # --- End Admin Dashboard Route (Modified) ---
 
@@ -1513,6 +1520,43 @@ def admin_logout():
     flash('You have been logged out of the Admin Panel.', 'success')
     return redirect(url_for('admin_login'))
 
+@app.route('/admin/audit-and-publish/<string:election_id>', methods=['POST'])
+@admin_required
+def audit_and_publish(election_id):
+    
+    # 1. Perform the Cryptographic Chain Audit
+    # (The verify_vote_chain_integrity function is already defined in app.py)
+    is_chain_valid, message = verify_vote_chain_integrity()
+
+    if not is_chain_valid:
+        # If audit fails, do NOT publish. Log error and redirect to admin dashboard.
+        print(f"CRITICAL AUDIT FAILURE for {election_id}: {message}")
+        flash(f'AUDIT FAILED for {election_id}: Chain integrity check failed. Results CANNOT be published. Please run a full Audit from the dashboard.', 'error')
+        return redirect(url_for('admin_dashboard'))
+
+    # 2. If Audit is VALID, proceed with publishing
+    elections = load_elections()
+    found = False
+    
+    for i, election in enumerate(elections):
+        if election.get('id') == election_id:
+            # Check if it's already published to prevent overwriting messages
+            if election.get('published_results', False):
+                 flash(f'Results for "{election_id}" were already published.', 'warning')
+                 return redirect(url_for('admin_dashboard'))
+            
+            elections[i]['published_results'] = True
+            found = True
+            break
+    
+    if found:
+        save_elections(elections)
+        flash(f'✅ Audit Passed & Results for "{election_id}" have been successfully PUBLISHED to the voters.', 'success')
+    else:
+        flash(f'Election ID {election_id} not found.', 'error')
+        
+    return redirect(url_for('admin_dashboard'))
+
 @app.route('/results')
 def results():
     votes_data = load_votes()
@@ -1567,6 +1611,7 @@ def results():
 @app.route('/admin/results')
 @admin_required
 def admin_live_results():
+    voters_data = load_voters()
     votes_data = load_votes()
     elections = load_elections()
     active_election = get_active_election()
@@ -1604,26 +1649,88 @@ def admin_live_results():
     results_tally = {}
     total_votes_in_election = 0 # NEW: Initialize total counter
     
+    METADATA_KEYS_TO_EXCLUDE = [
+        'transactionHash', 'TransactionHash', 
+        'electionId', 'ElectionId', 
+        'timestamp', 
+        'previous_hash', 'current_hash' # <-- CRITICAL HASH REMOVAL
+    ]
+
     # Only tally votes for the selected election
     for vote_key, vote in votes_data.items():
         if isinstance(vote, dict) and vote.get('electionId') == target_election_id:
             
-            # This is a full vote object, so increment the total
             total_votes_in_election += 1 
             
             for race_slug, candidate_slug in vote.items():
-                if race_slug not in ['transactionHash', 'electionId', 'timestamp']:
+                if race_slug not in METADATA_KEYS_TO_EXCLUDE:
                     
                     race_tally = results_tally.setdefault(race_slug, {})
                     race_tally[candidate_slug] = race_tally.get(candidate_slug, 0) + 1
                     
+    total_eligible_voters = len(voters_data)
+
+    # 2. Turnout Rate for This Election
+    # We already calculated 'total_votes_in_election' in the existing loop
+    if total_eligible_voters > 0:
+        turnout_rate = round((total_votes_in_election / total_eligible_voters) * 100, 2)
+    else:
+        turnout_rate = 0.0
+
+    # 3. Overall Margin Percentage (Tightest Race)
+    # We need to iterate over the 'results_tally' created earlier
+    overall_margin_percentage = 'N/A'
+    tightest_margin_found = float('inf')
+    tightest_race_name = ''
+
+    for race_slug, candidates in results_tally.items():
+        
+        # Sort candidates to find winner and runner-up
+        # candidates.items() -> list of (candidate_slug, count) tuples
+        sorted_candidates = sorted(candidates.items(), key=lambda item: item[1], reverse=True)
+        
+        total_votes_in_race = sum(candidates.values())
+        
+        # Only calculate margin if there are at least two candidates and some votes
+        if len(sorted_candidates) >= 2 and total_votes_in_race > 0:
+            winner_count = sorted_candidates[0][1]
+            runner_up_count = sorted_candidates[1][1]
+            
+            raw_margin = winner_count - runner_up_count
+            margin_percentage = (raw_margin / total_votes_in_race) * 100
+            
+            if margin_percentage < tightest_margin_found:
+                tightest_margin_found = margin_percentage
+                tightest_race_name = race_slug
+
+    if tightest_race_name:
+        # Round the tightest margin to two decimal places
+        overall_margin_percentage = round(tightest_margin_found, 2)
+        # Note: You might want to pass the race name too for context
+
+    # 4. Available Regions
+    # Collect unique regions from the entire election definition
+    available_regions = set()
+    for race in target_election.get('races', []):
+        for candidate in race.get('candidates', []):
+            region = candidate.get('region')
+            if region:
+                available_regions.add(region)
+                
+    # Convert to a sorted list for the dropdown
+    sorted_available_regions = sorted(list(available_regions))    
+    
     return render_template('truecast_admin_results.html', 
                            results=results_tally, 
                            election_title=election_title,
                            is_active=is_active,
                            is_published=is_published,
                            election_id=target_election_id,
-                           total_votes_in_election=total_votes_in_election)
+                           total_votes_in_election=total_votes_in_election,
+                           total_eligible_voters=total_eligible_voters,
+                            turnout_rate=turnout_rate,
+                            overall_margin_percentage=overall_margin_percentage,
+                            available_regions=sorted_available_regions)
 
 # --- Ensure all auxiliary pages are defined for URL building ---
 # Note: These require corresponding HTML files in the 'templates' folder
@@ -1632,6 +1739,84 @@ def admin_live_results():
 # --- Placeholder Routes ---
 # We add these so the server doesn't crash if a link is clicked.
 # You will need to create the corresponding .html files in your 'templates' folder.
+
+@app.route('/api/admin/get-chart-data/<string:election_id>')
+@admin_required
+def get_chart_data(election_id):
+    voters_data = load_voters()
+    votes_data = load_votes()
+    
+    # 1. Total Registered Voters for Turnout Calculation
+    total_voters = len(voters_data)
+
+    # 2. Calculate Votes and Race Tally for the SPECIFIC requested election
+    target_election = get_election_by_id(election_id)
+    if not target_election:
+        # Return empty data structure if election is not found
+        return jsonify({
+            'turnout_data': {'labels': ['No Data'], 'data': [1]},
+            'bar_chart_data': {'labels': ['No Races'], 'datasets': []}
+        })
+        
+    election_votes_cast = 0
+    race_results = {}
+    METADATA_KEYS = ['transactionHash', 'electionId', 'timestamp', 'previous_hash', 'current_hash']
+
+    for vote_key, vote in votes_data.items():
+        if isinstance(vote, dict) and vote.get('electionId') == election_id:
+            election_votes_cast += 1
+            for race_slug, candidate_slug in vote.items():
+                if race_slug not in METADATA_KEYS:
+                    # Clean up the display name for the chart tooltip/title
+                    race_display = race_slug.replace('-', ' ').title() 
+                    race_tally = race_results.setdefault(race_display, {})
+                    race_tally[candidate_slug] = race_tally.get(candidate_slug, 0) + 1
+
+    # 3. Build Turnout Data (Pie Chart)
+    not_voted_count = total_voters - election_votes_cast
+    turnout_data = {
+        'labels': ['Votes Cast', 'Eligible Voters (Not Voted)'],
+        'data': [election_votes_cast, not_voted_count]
+    }
+
+    # 4. Build Bar Chart Data (Top Race)
+    bar_chart_data = {'labels': [], 'datasets': []} 
+    
+    if race_results:
+        # Get the first race found (simplest way to show 'Top Race')
+        top_race_slug = next(iter(race_results.keys()), None)
+        
+        if top_race_slug:
+            race_data = race_results[top_race_slug]
+            
+            bar_chart_data['labels'] = [l.replace('-', ' ').title() for l in race_data.keys()] # Candidate Names
+            bar_chart_data['datasets'].append({
+                'label': top_race_slug, # Race Name
+                'data': list(race_data.values()),
+                # Colors are handled by the frontend JS
+            })
+
+    return jsonify({
+        'turnout_data': turnout_data,
+        'bar_chart_data': bar_chart_data
+    })
+
+
+@app.route('/api/admin/decrypt-email/<string:voter_id>', methods=['POST'])
+@admin_required
+def decrypt_voter_email_api(voter_id):
+    """API to securely decrypt and return a single voter's email for verification."""
+    voters = load_voters()
+    voter_info = voters.get(voter_id)
+
+    if voter_info:
+        encrypted_email = voter_info.get('email')
+        if encrypted_email:
+            decrypted_email = decrypt_data(encrypted_email)
+            if decrypted_email != "ENCRYPTION_FAILED":
+                return jsonify({'success': True, 'email': decrypted_email})
+    
+    return jsonify({'success': False, 'error': 'Voter not found or decryption failed.'}), 404
 
 @app.route('/admin/check-integrity', methods=['POST'])
 @admin_required
@@ -1646,9 +1831,18 @@ def check_integrity():
         print(f"AUDIT SUCCESS: {message}")
         flash(f'Chain Verification Success: {message}', 'success')
     else:
-        # CRITICAL: Flash an error if tampering is detected
-        print(f"AUDIT FAILURE DETECTED: {message}")
-        flash(f'CRITICAL INTEGRITY FAILURE: {message}', 'error')
+        simple_message = "Chain integrity failed."
+        
+        if "Chain break detected" in message:
+            # Message example: "Chain break detected at record #1! Expected hash: 0x..., Found: 0x..."
+            simple_message = "Critical chain break detected. Vote history has been compromised."
+        elif "Integrity break detected" in message:
+            # Message example: "Integrity break detected at record #1! Recalculated hash does not match stored hash."
+            simple_message = "Data tampering detected. Vote content in one block is invalid."
+            
+        # Flash the simplified, non-technical message to the frontend
+        print(f"AUDIT FAILURE: {message}")
+        flash(f'CRITICAL FAILURE: {simple_message} Please review the server log for technical details.', 'error')
         
     # CRITICAL FIX: Ensure the redirect response object is returned
     return redirect(url_for('admin_dashboard'))

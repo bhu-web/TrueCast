@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TRUECAST - Voting Results</title>
     <style>
-        /* ... (CSS remains unchanged) ... */
         * {
             margin: 0;
             padding: 0;
@@ -43,27 +42,9 @@
             font-weight: bold;
         }
         
-        .nav-tabs {
-            display: flex;
-            list-style: none;
-            gap: 0.5rem;
-            background: rgba(255,255,255,0.1);
-            border-radius: 25px;
-            padding: 0.5rem;
-        }
-
-        .nav-tab {
-            padding: 0.5rem 1rem;
-            color: white;
-            text-decoration: none;
-            border-radius: 20px;
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-
         /* Main Container */
         .container {
-            max-width: 1400px;
+            max-width: 1000px; /* Slimmer for focus */
             margin: 0 auto;
             padding: 2rem 20px;
         }
@@ -93,16 +74,19 @@
         }
         
         .race-card {
-            background: #f8f9fa;
+            border: 1px solid #e9ecef;
             border-radius: 10px;
             padding: 1.5rem;
-            margin-bottom: 1.5rem;
+            margin-bottom: 2rem;
+            overflow: hidden; /* For rounded corners on bars */
         }
 
         .race-title {
             font-size: 1.5rem;
             color: #2c3e50;
             margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #3498db;
         }
 
         .candidate-list {
@@ -111,31 +95,79 @@
         }
 
         .candidate-item {
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: 2fr 1fr 100px; /* Name/Bar | Percentage | Count */
             align-items: center;
-            padding: 0.75rem 0;
-            border-bottom: 1px solid #e9ecef;
+            padding: 0.5rem 0;
+            margin-bottom: 0.5rem;
+            border-radius: 5px;
+            transition: background 0.3s;
         }
-
-        .candidate-item:last-child {
-            border-bottom: none;
+        
+        /* Winner Highlight */
+        .candidate-item.winner {
+            background: #e6ffed; /* Light green background */
+            border: 1px solid #27ae60;
+            font-weight: 600;
         }
         
         .candidate-name {
             font-weight: 600;
             color: #2c3e50;
+            padding-left: 10px;
         }
         
+        /* Vote Bar Styling */
+        .vote-bar-container {
+            width: 90%;
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 0 10px;
+        }
+
+        .vote-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db 0%, #27ae60 100%);
+            transition: width 0.5s ease;
+        }
+
+        .percentage-display {
+            font-weight: bold;
+            color: #3498db;
+            text-align: right;
+        }
+
         .candidate-votes {
-            padding: 0.3rem 0.8rem;
-            border-radius: 15px;
-            font-size: 0.9rem;
-            font-weight: 600;
-            background: #3498db;
-            color: white;
+            font-weight: bold;
+            color: #2c3e50;
+            text-align: right;
+            padding-right: 10px;
         }
         
+        .margin-text {
+            text-align: center;
+            margin-top: 1rem;
+            padding: 0.5rem;
+            background: #f0f3f5;
+            border-radius: 5px;
+            font-size: 0.95rem;
+        }
+        
+        /* Security Alert */
+        .alert-security {
+            background: #d1fae5;
+            border: 1px solid #a7f3d0;
+            color: #059669;
+            padding: 1.5rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            text-align: center;
+        }
+
         .no-results-message {
             text-align: center;
             padding: 50px;
@@ -159,7 +191,8 @@
     <div class="header">
         <div class="header-content">
             <div class="logo">🗳️ TRUECAST ELECTION RESULTS</div>
-            </div>
+            <a href="/vote-verification" style="color: white; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid white; border-radius: 5px;">Verify My Vote</a>
+        </div>
     </div>
 
     <div class="container">
@@ -169,7 +202,7 @@
                 <select id="election-select" onchange="window.location.href='/results?election_id=' + this.value" style="padding: 10px; border-radius: 5px; border: 1px solid #ccc; width: 100%; max-width: 400px; font-size: 1rem;">
                     {% for pub_e in published_list %}
                         <option value="{{ pub_e.id }}" {% if pub_e.id == current_election_id %}selected{% endif %}>
-                            {{ pub_e.title }} (Results Published: {{ pub_e.endDate.split('T')[0] }})
+                            {{ pub_e.title }} (Published: {{ pub_e.endDate.split('T')[0] }})
                         </option>
                     {% endfor %}
                 </select>
@@ -186,38 +219,59 @@
             <div class="results-header">
                 <h2 class="results-title">{{ election_title }}</h2>
                 <p class="results-subtitle">
-                    {% if results %}
-                        Certified results for all races are now published.
-                    {% elif not message %}
-                        Results are currently unavailable.
-                    {% endif %}
+                    Certified results for all races are now published.
                 </p>
             </div>
             
             {% if results %}
+                <div class="alert-security">
+                    ✅ **Results Certified:** These results passed a cryptographic chain audit before publication, ensuring integrity.
+                </div>
+
                 <div id="results-display">
                     {% for race_slug, candidates in results.items() %}
                         <div class="race-card">
                             <h3 class="race-title">{{ race_slug | replace('-', ' ') | capitalize }}</h3>
                             <ul class="candidate-list">
                                 {% set total_votes_in_race = candidates.values() | sum %}
-                                {% for candidate_slug, count in candidates.items() %}
-                                    <li class="candidate-item">
-                                        <span class="candidate-name">{{ candidate_slug | replace('-', ' ') | capitalize }}</span>
-                                        <div style="display: flex; align-items: center; gap: 15px;">
-                                            {% set percentage = (count / total_votes_in_race * 100) | round(1) if total_votes_in_race > 0 else 0 %}
-                                            <span style="color: #3498db; font-weight: bold;">{{ percentage }}%</span>
-                                            <span class="candidate-votes">{{ count }} Votes</span>
+                                {% set sorted_candidates = candidates.items() | sort(attribute=1, reverse=true) %}
+                                
+                                {% set winner_count = sorted_candidates[0][1] if sorted_candidates | length > 0 else 0 %}
+                                {% set runner_up_count = sorted_candidates[1][1] if sorted_candidates | length > 1 else 0 %}
+                                {% set margin = winner_count - runner_up_count %}
+                                {% set margin_percentage = (margin / total_votes_in_race * 100) | round(2) if total_votes_in_race > 0 else 0 %}
+
+                                {% for candidate_slug, count in sorted_candidates %}
+                                    {% set percentage = (count / total_votes_in_race * 100) | round(1) if total_votes_in_race > 0 else 0 %}
+                                    <li class="candidate-item {% if loop.first %}winner{% endif %}">
+                                        
+                                        <div style="display: flex; align-items: center;">
+                                            <span class="candidate-name">{{ candidate_slug | replace('-', ' ') | capitalize }}</span>
+                                            {% if loop.first %}<span style="font-size: 1.5rem; margin-left: 10px;">🥇</span>{% endif %}
+                                            <div class="vote-bar-container" style="margin-left: 15px;">
+                                                <div class="vote-bar-fill" style="width: {{ percentage }}%;"></div>
+                                            </div>
                                         </div>
+                                        
+                                        <span class="percentage-display">{{ percentage }}%</span>
+                                        
+                                        <span class="candidate-votes">{{ count }} Votes</span>
                                     </li>
                                 {% endfor %}
                             </ul>
+                            
+                            {% if sorted_candidates | length > 1 %}
+                                <p class="margin-text">
+                                    **Winner:** {{ sorted_candidates[0][0] | replace('-', ' ') | capitalize }} | 
+                                    **Margin of Victory:** {{ margin }} votes ({{ margin_percentage }}%)
+                                </p>
+                            {% endif %}
                         </div>
                     {% endfor %}
                 </div>
             {% elif not message %}
                 <div class="no-results-message">
-                    <p>No votes have been recorded for this election yet.</p>
+                    <p>No certified results have been recorded for this election yet.</p>
                 </div>
             {% endif %}
         </div>

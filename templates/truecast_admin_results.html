@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TRUECAST - Admin Live Results</title>
@@ -60,28 +61,51 @@
         margin-bottom: 1rem;
         text-transform: capitalize;
       }
+      /* Hiding old candidate rows as they are replaced by Chart.js */
       .candidate-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.75rem 1rem;
-        margin-bottom: 0.5rem;
-        background: #f8f9fa;
+        display: none; 
+      }
+      
+      /* --- NEW: Metrics Grid CSS --- */
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.5rem;
+        margin-top: 1rem;
+        padding: 1rem;
+        background: #f0f3f5;
         border-radius: 8px;
-        font-size: 1.1rem;
       }
-      .candidate-name {
-        font-weight: 600;
-        flex: 1;
-        text-transform: capitalize;
+      .metric-box {
+        text-align: center;
+        padding: 0.5rem;
       }
-      .vote-count {
+      .metric-value {
+        font-size: 1.8rem;
         font-weight: bold;
-        color: #27ae60;
-        background: #e6ffed;
-        padding: 0.3rem 0.8rem;
-        border-radius: 5px;
+        color: #2c3e50;
+        margin-bottom: 0.2rem;
       }
+      .metric-label {
+        color: #7f8c8d;
+        font-size: 0.9rem;
+      }
+      /* --- End Metrics Grid CSS --- */
+
+      /* Margin Analysis Insight */
+      .margin-analysis {
+        background: #f0f3f5;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        margin-top: 1rem;
+        font-size: 1rem;
+        color: #555;
+      }
+      .margin-analysis strong {
+        color: #2c3e50;
+      }
+      
+      /* Status Badges and Alerts */
       .status-badge {
         display: inline-block;
         padding: 0.5rem 1rem;
@@ -98,7 +122,7 @@
         color: #b91c1c;
       }
       .status-published {
-        background: #ffe6b6; /* Orange/Yellow for published results */
+        background: #ffe6b6; 
         color: #ff9800;
       }
       .btn {
@@ -113,10 +137,6 @@
       }
       .btn-publish {
         background: #27ae60;
-        color: white;
-      }
-      .btn-default {
-        background: #3498db;
         color: white;
       }
       .alert-box {
@@ -168,24 +188,69 @@
           </div>
         {% endif %}
         
-        <p style="color: #7f8c8d; margin-bottom: 2rem;">
-  Tally of **{{ total_votes_in_election }}** total votes recorded for this election.
-</p>
+        <p style="color: #7f8c8d; margin-bottom: 0.5rem;">
+          Tally of **{{ total_votes_in_election }}** total votes recorded for this election.
+        </p>
+        
+        <div class="metrics-grid">
+          <div class="metric-box">
+            <div class="metric-value">{{ turnout_rate | default('N/A') }}%</div>
+            <div class="metric-label">Voter Turnout (of Eligible Voters)</div>
+          </div>
+
+          <div class="metric-box">
+            <div class="metric-value">{{ overall_margin_percentage | default('N/A') }}%</div>
+            <div class="metric-label">Tightest Margin of Victory</div>
+          </div>
+          
+          <div class="metric-box">
+            <div class="metric-value">{{ total_eligible_voters | default('N/A') }}</div>
+            <div class="metric-label">Total Eligible Voters</div>
+          </div>
+        </div>
         {% if results %}
+          <div style="margin-bottom: 3rem; margin-top: 2rem;">
+            <h3 style="color: #2c3e50; margin-bottom: 1rem;">Election Vote Distribution (Primary Race)</h3>
+            <div style="width: 100%; height: 350px;">
+              <canvas id="raceBarChart"></canvas>
+            </div>
+          </div>
+
           {% for race_slug, candidates in results.items() %}
             <div class="race-section">
-              <h3 class="race-title">{{ race_slug | replace('-', ' ') }}</h3>
+              <h3 class="race-title">
+                {{ race_slug | replace('-', ' ') }} 
+                <select onchange="loadRegionalResults('{{ election_id }}', '{{ race_slug }}', this.value)" style="margin-left: 1rem;">
+                    <option value="All">All Regions (Default)</option>
+                    {% for region in available_regions | default([]) %}
+                        <option value="{{ region }}">{{ region }}</option>
+                    {% endfor %}
+                </select>
+              </h3>
               
               {% set total_votes_in_race = candidates.values() | sum %}
+              {% set sorted_candidates = candidates.items() | sort(attribute=1, reverse=true) %}
               
-              {% for candidate_slug, count in candidates.items() %}
-                {% set percentage = (count / total_votes_in_race * 100) | round(1) if total_votes_in_race > 0 else 0 %}
+              {% set winner_count = sorted_candidates[0][1] if sorted_candidates | length > 0 else 0 %}
+              {% set runner_up_count = sorted_candidates[1][1] if sorted_candidates | length > 1 else 0 %}
+              {% set margin = winner_count - runner_up_count %}
+              {% set margin_percentage = (margin / total_votes_in_race * 100) | round(2) if total_votes_in_race > 0 else 0 %}
+              
+              {% for candidate_slug, count in sorted_candidates %}
                 <div class="candidate-row">
                   <span class="candidate-name">{{ candidate_slug | replace('-', ' ') }}</span>
-                  <span style="width: 100px; text-align: right; color: #7f8c8d;">{{ percentage }}%</span>
                   <span class="vote-count">{{ count }}</span>
                 </div>
               {% endfor %}
+              
+              {% if total_votes_in_race > 0 and sorted_candidates | length > 1 %}
+                <div class="margin-analysis">
+                    {% set winner_name = sorted_candidates[0][0] | replace('-', ' ') %}
+                    {% set runner_up_name = sorted_candidates[1][0] | replace('-', ' ') %}
+                    <strong>WINNER: {{ winner_name | capitalize }}</strong> led by a margin of **{{ margin }}** votes (**{{ margin_percentage }}%**) over {{ runner_up_name | capitalize }}.
+                </div>
+              {% endif %}
+              
             </div>
           {% endfor %}
         {% else %}
@@ -195,13 +260,90 @@
         {% endif %}
         
         {% if not is_active and not is_published and election_id != 'N/A' %}
-          <form method="POST" action="/admin/publish-results/{{ election_id }}" style="display:inline;">
-            <button type="submit" class="btn btn-publish" onclick="return confirm('Certify and PUBLISH these final results to the public voter page? This action is public.')">
-              Certify & Publish Results
+          <form method="POST" action="/admin/audit-and-publish/{{ election_id }}" style="display:inline;">
+            <button type="submit" class="btn btn-publish" onclick="return confirm('WARNING: This will perform a final Chain Audit. If the audit passes, the results will be PUBLISHED to the public voter page. Proceed?')">
+              Audit & Publish Results 🔒
             </button>
           </form>
         {% endif %}
       </div>
     </div>
+
+    <script>
+      // Utility function to get safe data from Jinja context
+      const RESULTS_DATA = {{ results | tojson | safe }};
+      const ACTIVE_ELECTION_ID = '{{ election_id }}';
+
+      function renderChart(raceResults) {
+        const chartData = {
+          labels: [],
+          datasets: []
+        };
+        
+        // We render the first race found on the page in the main chart
+        const firstRaceSlug = Object.keys(raceResults)[0];
+        if (!firstRaceSlug) return;
+        
+        const raceData = raceResults[firstRaceSlug];
+        
+        // Convert slugs to display names and get counts
+        const candidateLabels = Object.keys(raceData).map(slug => slug.replace('-', ' ').toUpperCase());
+        const voteCounts = Object.values(raceData);
+        
+        chartData.labels = candidateLabels;
+        chartData.datasets.push({
+          label: firstRaceSlug.replace('-', ' ').toUpperCase(),
+          data: voteCounts,
+          backgroundColor: ['#3498db', '#27ae60', '#f1c40f', '#e74c3c', '#9b59b6', '#1abc9c'], 
+          borderColor: '#f5f7fa',
+          borderWidth: 2
+        });
+
+        const ctx = document.getElementById('raceBarChart').getContext('2d');
+        
+        if (window.raceChartInstance) {
+          window.raceChartInstance.destroy();
+        }
+        
+        window.raceChartInstance = new Chart(ctx, {
+          type: 'bar', 
+          data: chartData,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              title: {
+                display: true,
+                text: `Results for: ${firstRaceSlug.replace('-', ' ').toUpperCase()}`
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                title: { display: true, text: 'Vote Count' }
+              },
+              x: {
+                 ticks: { autoSkip: false, maxRotation: 45, minRotation: 45 }
+              }
+            }
+          }
+        });
+      }
+
+      function loadRegionalResults(electionId, raceSlug, region) {
+        // Conceptual: This function would use an AJAX call to a new Flask route 
+        // /api/admin/regional-results?election_id=X&race_slug=Y&region=Z
+        // to fetch data filtered by the selected region and then update the Chart.js
+        console.log(`Fetching results for: Election ${electionId}, Race ${raceSlug}, Region ${region}`);
+        alert("Regional data fetching is a planned feature.");
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        if (Object.keys(RESULTS_DATA).length > 0) {
+          renderChart(RESULTS_DATA);
+        }
+      });
+    </script>
   </body>
 </html>
