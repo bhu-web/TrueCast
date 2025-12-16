@@ -95,8 +95,10 @@
         }
 
         .candidate-item {
+            /* ORIGINAL: display: grid; grid-template-columns: 2fr 1fr 100px; */ 
+            /* MODIFIED: Use inline style to override the complex grid and only use two columns */
             display: grid;
-            grid-template-columns: 2fr 1fr 100px; /* Name/Bar | Percentage | Count */
+            grid-template-columns: 3fr 1fr; /* Name | Count */
             align-items: center;
             padding: 0.5rem 0;
             margin-bottom: 0.5rem;
@@ -117,7 +119,7 @@
             padding-left: 10px;
         }
         
-        /* Vote Bar Styling */
+        /* Vote Bar Styling (STILL HERE BUT UNUSED) */
         .vote-bar-container {
             width: 90%;
             height: 8px;
@@ -125,6 +127,7 @@
             border-radius: 4px;
             overflow: hidden;
             margin: 0 10px;
+            display: none; /* Hiding the bar */
         }
 
         .vote-bar-fill {
@@ -137,6 +140,7 @@
             font-weight: bold;
             color: #3498db;
             text-align: right;
+            display: none; /* Hiding percentage */
         }
 
         .candidate-votes {
@@ -225,7 +229,7 @@
             
             {% if results %}
                 <div class="alert-security">
-                    ✅ **Results Certified:** These results passed a cryptographic chain audit before publication, ensuring integrity.
+                    ✅ Results Certified: These results passed a cryptographic chain audit before publication, ensuring integrity.
                 </div>
 
                 <div id="results-display">
@@ -233,13 +237,13 @@
                         <div class="race-card">
                             <h3 class="race-title">{{ race_slug | replace('-', ' ') | capitalize }}</h3>
                             <ul class="candidate-list">
-                                {% set total_votes_in_race = candidates.values() | sum %}
-                                {% set sorted_candidates = candidates.items() | sort(attribute=1, reverse=true) %}
+                                <!-- {% set total_votes_in_race = candidates.values() | sum %} -->
+                                <!-- {% set sorted_candidates = candidates.items() | sort(attribute=1, reverse=true) %} -->
                                 
-                                {% set winner_count = sorted_candidates[0][1] if sorted_candidates | length > 0 else 0 %}
-                                {% set runner_up_count = sorted_candidates[1][1] if sorted_candidates | length > 1 else 0 %}
+                                <!-- {% set winner_count = sorted_candidates[0][1] if sorted_candidates | length > 0 else 0 %} -->
+                                <!-- {% set runner_up_count = sorted_candidates[1][1] if sorted_candidates | length > 1 else 0 %}
                                 {% set margin = winner_count - runner_up_count %}
-                                {% set margin_percentage = (margin / total_votes_in_race * 100) | round(2) if total_votes_in_race > 0 else 0 %}
+                                {% set margin_percentage = (margin / total_votes_in_race * 100) | round(2) if total_votes_in_race > 0 else 0 %} -->
 
                                 {% for candidate_slug, count in sorted_candidates %}
                                     {% set percentage = (count / total_votes_in_race * 100) | round(1) if total_votes_in_race > 0 else 0 %}
@@ -248,9 +252,7 @@
                                         <div style="display: flex; align-items: center;">
                                             <span class="candidate-name">{{ candidate_slug | replace('-', ' ') | capitalize }}</span>
                                             {% if loop.first %}<span style="font-size: 1.5rem; margin-left: 10px;">🥇</span>{% endif %}
-                                            <div class="vote-bar-container" style="margin-left: 15px;">
-                                                <div class="vote-bar-fill" style="width: {{ percentage }}%;"></div>
-                                            </div>
+                                            <div class="vote-bar-container" style="width: {{ percentage }}%;"></div>
                                         </div>
                                         
                                         <span class="percentage-display">{{ percentage }}%</span>
@@ -262,8 +264,8 @@
                             
                             {% if sorted_candidates | length > 1 %}
                                 <p class="margin-text">
-                                    **Winner:** {{ sorted_candidates[0][0] | replace('-', ' ') | capitalize }} | 
-                                    **Margin of Victory:** {{ margin }} votes ({{ margin_percentage }}%)
+                                    Winner: {{ sorted_candidates[0][0] | replace('-', ' ') | capitalize }} | 
+                                    Margin of Victory: {{ margin }} votes ({{ margin_percentage }}%)
                                 </p>
                             {% endif %}
                         </div>

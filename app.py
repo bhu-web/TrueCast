@@ -27,16 +27,15 @@ load_dotenv()
 print("DEBUG USER:", os.environ.get('MAIL_USERNAME'))
 print("DEBUG PASS:", os.environ.get('MAIL_PASSWORD'))
 
-try:
-    from document_extracter import extract_text_from_file 
-except ImportError:
-    print("Warning: 'document_extracter' not found. OCR simulation will be used.")
-    def extract_text_from_file(*args, **kwargs):
-        raise NotImplementedError("document_extracter module is missing.")
+# try:
+#     from document_extracter import extract_text_from_file 
+# except ImportError:
+#     print("Warning: 'document_extracter' not found. OCR simulation will be used.")
+#     def extract_text_from_file(*args, **kwargs):
+#         raise NotImplementedError("document_extracter module is missing.")
 
-# Initialize EasyOCR Reader 
+# EasyOCR Reader 
 try:
-    # Using English for pattern matching
     ocr_reader = easyocr.Reader(['en']) 
     print("EasyOCR reader loaded successfully (English Only).")
 except Exception as e:
@@ -45,11 +44,13 @@ except Exception as e:
 
 # Configuration & File Setup 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-JSON_FILE = os.path.join(BASE_DIR, 'voters.json') # Stores voter profiles
-VOTES_FILE = os.path.join(BASE_DIR, 'votes.json') # Stores cast vote records
-ELECTIONS_FILE = os.path.join(BASE_DIR, 'elections.json') # Stores election details (NEW)
+JSON_FILE = os.path.join(BASE_DIR, 'voters.json') 
+VOTES_FILE = os.path.join(BASE_DIR, 'votes.json') 
+ELECTIONS_FILE = os.path.join(BASE_DIR, 'elections.json') 
+
 SECRET_KEY = os.environ.get('SECRET_KEY', 'a_very_secret_key_for_truecast_sessions') 
 ENCRYPTION_KEY = os.environ.get('DATA_ENCRYPTION_KEY', 'default_insecure_key_32_bytes_long_')
+
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
@@ -68,16 +69,12 @@ mail = Mail(app)
 
 def hash_pin(pin):
     """Hashes a plaintext PIN using bcrypt."""
-    # bcrypt.gensalt() generates a unique salt and includes it in the hash.
-    # Return the decoded string immediately for storage in JSON.
     return bcrypt.hashpw(pin.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def check_pin(pin, hashed_pin):
     """Checks a plaintext PIN against the stored hash."""
     if not hashed_pin:
         return False
-    # Ensure both are encoded back to bytes before bcrypt checks them.
-    # The 'hashed_pin' must be a clean string from JSON.
     return bcrypt.checkpw(pin.encode('utf-8'), hashed_pin.encode('utf-8'))
 
 def hash_record(data_dict):
@@ -85,14 +82,11 @@ def hash_record(data_dict):
     Creates a deterministic SHA-256 hash of a dictionary.
     Sorting keys ensures the hash is consistent regardless of insertion order.
     """
-    # 1. Serialize the dictionary to a JSON string with sorted keys and no whitespace
     serialized_data = json.dumps(
         data_dict,
         sort_keys=True, 
         separators=(',', ':') 
-    ).encode('utf-8')
-    
-    # 2. Hash the resulting bytes
+    ).encode('utf-8')    
     return hashlib.sha256(serialized_data).hexdigest()
 
 def get_last_hash():
@@ -101,28 +95,21 @@ def get_last_hash():
     Removes the broken reference to '.cache' to fix the AttributeError.
     """
     votes_data = load_votes()
-
     if not votes_data:
-        # Genesis Block: Initial hash for the very first record
         return "0000000000000000000000000000000000000000000000000000000000000000"
 
-    # Get the data of the last vote entry (dictionaries preserve insertion order since Python 3.7)
     try:
         last_vote = votes_data[next(reversed(votes_data))]
     except StopIteration:
-        # Safety fallback if dict somehow becomes corrupted
         return "0000000000000000000000000000000000000000000000000000000000000000"
-    
-    # Return the hash of the last block. If the key is missing, return Genesis hash.
     return last_vote.get('current_hash', "0000000000000000000000000000000000000000000000000000000000000000")
 
 try:
-    # Fernet keys must be 32 URL-safe base64-encoded bytes
     key_bytes = base64.urlsafe_b64encode(ENCRYPTION_KEY.encode().ljust(32)[:32])
     cipher = Fernet(key_bytes)
 except Exception as e:
     print(f"CRITICAL ERROR: Failed to initialize Fernet cipher. Check DATA_ENCRYPTION_KEY: {e}")
-    cipher = None # Fail gracefully if key is bad
+    cipher = None 
 
 def encrypt_data(data):
     """Encrypts a string for storage."""
@@ -136,10 +123,9 @@ def decrypt_data(data):
     """Decrypts a stored string."""
     if not cipher or not data: return data
     try:
-        # If the data is not recognized as Fernet format, treat it as plaintext (legacy/default)
         return cipher.decrypt(data.encode()).decode()
     except Exception:
-        return data # Return original data if decryption fails (e.g. if it was plaintext)
+        return data 
 
 @app.after_request
 def add_security_headers(response):
@@ -148,24 +134,17 @@ def add_security_headers(response):
     This forces the browser to re-request the page from the server, 
     where the login_required check will run.
     """
-    # Standard headers to prevent caching on all modern browsers
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache" # For HTTP 1.0 compatibility
-    response.headers["Expires"] = "0" # Proxies/Browsers should not cache expired content
-    
-    # If using HTTPS (recommended), you can also use this:
-    # response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
-
+    response.headers["Pragma"] = "no-cache" 
+    response.headers["Expires"] = "0" 
     return response
 
-# Gemini API Configuration
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 else:
     print("Warning: GEMINI_API_KEY not found in environment variables.")
 
-# Configuration for the TRUECAST Bot
 TRUECAST_SYSTEM_PROMPT = """
 You are the official AI support assistant for TRUECAST, a secure blockchain-based digital voting platform for Indian elections.
 Your role is to assist voters with the following tasks:
@@ -182,14 +161,12 @@ GUIDELINES:
 - **LIMITATION:** If you do not know an answer, suggest they visit the 'Help' page or contact the TRUECAST Nodal Officer support.
 """
 
-# Model Initialization (Uses the currently stable 2.5 Flash model) ---
 try:
     chat_model = genai.GenerativeModel(
         model_name='gemini-2.5-flash', 
         system_instruction=TRUECAST_SYSTEM_PROMPT
     )
     print("Gemini AI initialized with: gemini-2.5-flash (Stable)")
-    
 except Exception as e:
     print(f"CRITICAL ERROR: Could not initialize model gemini-2.5-flash. Details: {e}")
     if not GEMINI_API_KEY:
@@ -200,37 +177,25 @@ except Exception as e:
 def send_otp():
     data = request.get_json()
     voter_identifier = data.get('voterId') 
-    
     if not voter_identifier:
         return jsonify({'success': False, 'error': 'Voter ID is required.'}), 400
-
-    target_voter = get_voter_by_identifier(voter_identifier)
-            
+    target_voter = get_voter_by_identifier(voter_identifier)  
     if not target_voter:
-        return jsonify({'success': False, 'error': 'Voter not found.'}), 404
-        
+        return jsonify({'success': False, 'error': 'Voter not found.'}), 404    
     encrypted_email = target_voter.get('email')
     email = decrypt_data(encrypted_email)
     if not email or email == "ENCRYPTION_FAILED" or not re.match(r'[^@]+@[^@]+\.[^@]+', email):
         return jsonify({'success': False, 'error': 'No valid email address linked to this voter.'}), 400
-
     otp = str(random.randint(100000, 999999))
-    
-    # We also store the voter_id to ensure the OTP is used for the correct user
     session['otp'] = otp
     session['otp_voter_id'] = target_voter['voter_id']
     session['otp_timestamp'] = datetime.now(timezone.utc).timestamp()
-
-    # 4. Send Email
     try:
         msg = Message('TrueCast Login Verification', recipients=[email])
         msg.body = f"Your One-Time Password (OTP) for TrueCast voting is: {otp}\n\nThis code expires in 5 minutes.\nDo not share this code."
         mail.send(msg)
-        
-        # Return success (mask the email for privacy)
         masked_email = re.sub(r'(.).*@', r'\1***@', email)
         return jsonify({'success': True, 'message': f'OTP sent to {masked_email}'})
-        
     except Exception as e:
         print(f"Email error: {e}")
         return jsonify({'success': False, 'error': 'Failed to send email. Check server logs.'}), 500
@@ -239,52 +204,37 @@ def send_otp():
 def verify_otp_login():
     data = request.get_json()
     input_otp = data.get('otp')
-    
-    # 1. Check if OTP exists in session
     stored_otp = session.get('otp')
     stored_voter_id = session.get('otp_voter_id')
     timestamp = session.get('otp_timestamp')
-    
     if not stored_otp or not input_otp:
         return jsonify({'success': False, 'error': 'Invalid request.'}), 400
-
-    # 2. Check Expiration (5 minutes)
     if datetime.now(timezone.utc).timestamp() - timestamp > 300:
         session.pop('otp', None)
         return jsonify({'success': False, 'error': 'OTP has expired. Please request a new one.'}), 400
-        
-    # 3. Verify Match
     if input_otp == stored_otp:
-        # 4. Log the user in (Same logic as voter_login)
         voters = load_voters()
         authenticated_voter = voters.get(stored_voter_id)
-        
         if authenticated_voter:
             session['logged_in'] = True
             session['voter_id'] = authenticated_voter['voter_id']
             session['email'] = authenticated_voter.get('email')
             session['voter_region'] = authenticated_voter.get('voterRegion')
-            
             first = authenticated_voter.get('firstName', '')
             last = authenticated_voter.get('lastName', '')
             session['full_name'] = f"{first} {last}".strip() or 'Voter'
-            
-            # Clear OTP from session
             session.pop('otp', None)
             session.pop('otp_voter_id', None)
             session.pop('otp_timestamp', None)
-            
             return jsonify({
                 'success': True, 
                 'message': 'Authentication successful!',
                 'redirect': url_for('voting_dashboard')
             })
-    
     return jsonify({'success': False, 'error': 'Invalid OTP.'}), 401
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# --- JSON Database Functions ---
 def load_voters():
     """Reads the voter data from the JSON file."""
     if not os.path.exists(JSON_FILE):
@@ -308,12 +258,11 @@ def load_votes():
     """Reads the dictionary of cast votes from the JSON file."""
     if not os.path.exists(VOTES_FILE):
         with open(VOTES_FILE, 'w') as f:
-             json.dump({}, f) # Initialize as an empty dictionary
+             json.dump({}, f) 
         return {}
     try:
         with open(VOTES_FILE, 'r') as f:
             data = json.load(f)
-            # Ensure it's a dictionary, not a list
             return data if isinstance(data, dict) else {}
     except (json.JSONDecodeError, FileNotFoundError):
         with open(VOTES_FILE, 'w') as f:
@@ -325,12 +274,11 @@ def save_votes(data):
     with open(VOTES_FILE, 'w') as f:
         json.dump(data, f, indent=4)
 
-# --- Election JSON Functions ---
 def load_elections():
     """Reads the list of elections from the JSON file."""
     if not os.path.exists(ELECTIONS_FILE):
         with open(ELECTIONS_FILE, 'w') as f:
-             json.dump([], f) # Initialize as an empty list
+             json.dump([], f) 
         return []
     try:
         with open(ELECTIONS_FILE, 'r') as f:
@@ -352,51 +300,32 @@ def get_active_election():
     the status of expired elections.
     """
     elections = load_elections()
-    
     now = datetime.now(IST)
     elections_changed = False
     active_election = None
-    
     for election in elections:
         try:
             start_time = datetime.fromisoformat(election.get('startDate'))
             end_time = datetime.fromisoformat(election.get('endDate'))
-            
-            # Ensure they are timezone aware (IST is defined globally)
             if start_time.tzinfo is None: start_time = start_time.replace(tzinfo=IST)
             if end_time.tzinfo is None: end_time = end_time.replace(tzinfo=IST)
-            
         except (ValueError, TypeError):
             continue 
-
         status = election.get('status', 'Active')
-        
-        # 1. Automatic End Check: If status is Active AND the end time is <= now
         if status == 'Active' and end_time <= now:
             election['status'] = 'Ended'
             elections_changed = True
-            
-        # 2. Check for the truly active election
-        # Treat election as active if now is before end time
         elif election['status'] == 'Active' and now < end_time:
             active_election = election
-
-
-            # Do NOT break here. We must continue iterating to check if any earlier elections need to be marked 'Ended'.
-            
-    # Save any automatic status changes (must be done outside the loop)
     if elections_changed:
         save_elections(elections)
-    
-    # After checking all elections and performing automatic ends, return the true active one.
     return active_election
     
-    # Fallback to the most recent 'Active' election if the time window is missed
-    for election in reversed(elections):
-        if election.get('status') == 'Active':
-            return election
-
-    return None
+    # # Fallback to the most recent 'Active' election if the time window is missed
+    # for election in reversed(elections):
+    #     if election.get('status') == 'Active':
+    #         return election
+    # return None
 
 def get_election_by_id(election_id):
     """Finds an election by its ID."""
@@ -405,9 +334,7 @@ def get_election_by_id(election_id):
         if election.get('id') == election_id:
             return election
     return None
-# --- End Election JSON Functions ---
 
-# --- Authentication Decorator (For Protecting Routes) ---
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -426,11 +353,9 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function 
 
-# --- Helper Functions ---
 def generate_hash_id(length=64):
     return '0x' + ''.join(random.choices(string.hexdigits.lower(), k=length))
 
-# --- NEW: Image Preprocessing Function ---
 def preprocess_image(file_bytes):
     """
     Cleans the image for better OCR results:
@@ -438,27 +363,12 @@ def preprocess_image(file_bytes):
     2. Apply Thresholding (Binarization) to make text pop
     3. Denoise
     """
-    # Convert bytes to numpy array
     nparr = np.frombuffer(file_bytes, np.uint8)
-    
-    # Decode image
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    
     if img is None:
-        return file_bytes # Return original if decoding fails
-    
-    # 1. Convert to grayscale
+        return file_bytes 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-    # 2. Apply simple thresholding or adaptive thresholding
-    # This makes the text black and background white (or vice versa)
-    # Binary threshold: If pixel > 127, make it 255 (white), else 0 (black)
     _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    # 3. Optional: Denoise slightly if the image is noisy
-    # cleaned = cv2.fastNlMeansDenoising(thresh, None, 10, 7, 21)
-    
-    # Encode back to bytes for EasyOCR
     _, encoded_img = cv2.imencode('.jpg', thresh)
     return encoded_img.tobytes()
 
@@ -466,31 +376,17 @@ def clean_text_keep_english(text):
     """
     Removes non-ASCII characters to confuse the regex parser less.
     """
-    # Keep standard ASCII printable characters (letters, numbers, punctuation, whitespace)
     return re.sub(r'[^\x00-\x7F]+', '', text)
-
-# --- START: NEW PATTERN-BASED PARSER (No Headers Required) ---
 
 def parse_ocr_text(text):
     """
     Generic Pattern-Based Parser for Indian IDs.
     """
-    # 1. Pre-clean text: Remove Hindi/Regional chars
     text = clean_text_keep_english(text)
     parsed_data = {}
-    
-    # --- 1. ID NUMBER Patterns ---
-    # Aadhaar Pattern: 12 digits (4 4 4), possibly space separated
-    # Matches: 1234 5678 9012 or 123456789012
     aadhaar_match = re.search(r'\b(\d{4}\s?\d{4}\s?\d{4})\b', text)
-    # PAN Pattern: 5 letters, 4 digits, 1 letter
-    # Matches: ABCDE1234F
     pan_match = re.search(r'\b([A-Z]{5}\d{4}[A-Z])\b', text)
-    # Passport Pattern: 1 Letter, 7 Digits
-    # Matches: A1234567
     passport_match = re.search(r'\b([A-Z]\d{7})\b', text)
-    # Driving License Pattern: State Code (2) + Digits
-    # Matches: KA01 20200012345
     dl_match = re.search(r'\b([A-Z]{2}[-\s]?\d{13,})\b', text)
     if aadhaar_match:
         parsed_data['ID Number'] = aadhaar_match.group(1).replace(" ", "")
@@ -507,38 +403,26 @@ def parse_ocr_text(text):
     else:
         parsed_data['ID Number'] = 'Not Found'
         parsed_data['docType'] = 'Unknown'
-    # --- 2. DATE OF BIRTH Patterns ---
-    # Look for DD/MM/YYYY or DD-MM-YYYY
-    # We prioritize dates that are seemingly valid birth years (e.g. 1900-2015)
-    # This helps avoid capturing "Issue Dates" that might be in the future or very recent
     dob_match = re.search(r'\b(\d{2}[/-]\d{2}[/-](?:19|20)\d{2})\b', text)
     if dob_match:
         parsed_data['Date of Birth'] = dob_match.group(1)
     else:
-        # Fallback: Look for Year of Birth (YYYY) common in Aadhaar
         yob_match = re.search(r'\b(19\d{2}|20\d{2})\b', text)
         if yob_match:
              parsed_data['Date of Birth'] = "01/01/" + yob_match.group(1)
         else:
              parsed_data['Date of Birth'] = 'Not Found'
-
-    # --- 3. FULL NAME Patterns (Aadhaar Specific) ---
-    # Heuristic: In Aadhaar, name is often the line ABOVE the DOB/Year of Birth
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     name_found = False
     if parsed_data['docType'] == 'Aadhaar Card':
         for i, line in enumerate(lines):
-            # Check if this line contains the DOB or Year of Birth keywords
             if "DOB" in line or "Year of Birth" in line or "Birth" in line:
-                # The line BEFORE this one is likely the name
                 if i > 0:
                     potential_name = lines[i-1]
-                    # Basic validation: ignore if it looks like "Government of India" or contains numbers
                     if "GOVERNMENT" not in potential_name.upper() and not any(char.isdigit() for char in potential_name):
                         parsed_data['Full Name'] = potential_name
                         name_found = True
                         break
-            # Also check if the specific DOB value is in this line
             elif parsed_data['Date of Birth'] != 'Not Found' and parsed_data['Date of Birth'] in line:
                  if i > 0:
                     potential_name = lines[i-1]
@@ -547,69 +431,38 @@ def parse_ocr_text(text):
                         name_found = True
                         break
     if not name_found:
-        # Fallback Heuristic: Names are usually:
-        # - 2 or 3 words
-        # - All capitalized or Title Case
-        # - Containing only letters
-        # - NOT keywords like "Government", "India", "Male", "Female", "Dob", "Address"
         stop_words = ["GOVERNMENT", "INDIA", "MALE", "FEMALE", "DOB", "DATE", "BIRTH", "ADDRESS", 
                       "YEAR", "FATHER", "HUSBAND", "NAME", "CARD", "INCOME", "TAX", "DEPARTMENT",
                       "UNIQUE", "IDENTIFICATION", "AUTHORITY", "PERMANENT", "ACCOUNT", "NUMBER"]              
         potential_names = []
         for line in lines:
             clean_line = line.strip()
-            # Filter out lines with numbers or symbols
             if not clean_line or any(char.isdigit() for char in clean_line) or len(clean_line) < 4:
                 continue  
-            # Filter out lines that contain stop words
             words = clean_line.split()
             if any(word.upper() in stop_words for word in words):
                 continue  
-            # Check if it looks like a name (2-4 words, mostly letters)
             if 2 <= len(words) <= 4 and all(word.isalpha() for word in words):
                  potential_names.append(clean_line)
-        # Selection Logic:
         if potential_names:
-            # For now, just take the first plausible name found
             parsed_data['Full Name'] = potential_names[0]
         else:
             parsed_data['Full Name'] = 'Not Found'
-
-    # --- 4. ADDRESS Patterns (PIN Code Anchor) ---
-    
-    # India Address Logic: Look for a 6-digit PIN code.
-    # The address is almost always the text block immediately preceding the PIN.
     pin_match = re.search(r'\b(\d{6})\b', text)
-    
     if pin_match:
         pin_code = pin_match.group(1)
-        
-        # Find the pin code in the text
         pin_index = text.find(pin_code)
-        
-        # Grab the preceding 100-150 characters
         start_index = max(0, pin_index - 120)
-        raw_addr_text = text[start_index:pin_index + 6] # Include PIN
-        
-        # Cleaning: Remove common prefixes if they were captured
+        raw_addr_text = text[start_index:pin_index + 6]
         clean_addr = re.sub(r'(Address|To|S/O|W/O|C/O)\s*[:.-]?\s*', '', raw_addr_text, flags=re.IGNORECASE)
-        
-        # Cleaning: Remove newlines
         clean_addr = re.sub(r'\n', ', ', clean_addr)
-        
         parsed_data['Address'] = clean_addr.strip()
     else:
         parsed_data['Address'] = 'Not Found'
-        
     return parsed_data
-# --- END PARSERS ---
-
-
-# --- Routes ---
 
 @app.route('/')
 def home():
-    # This route needs a 'truecast_landing.html' template
     return render_template('truecast_landing.html',
                            logged_in=session.get('logged_in', False),
                            full_name=session.get('full_name', ''))
@@ -618,59 +471,32 @@ def home():
 def ocr_process():
     if 'idDocument' not in request.files:
         return jsonify({"success": False, "error": "No document uploaded."}), 400
-    
-    file = request.files.get('idDocument') # Use get() for single file
-    
+    file = request.files.get('idDocument') 
     if not file or not file.filename:
         return jsonify({"success": False, "error": "No document selected."}), 400
-        
     if not ocr_reader:
          return jsonify({"success": False, "error": "OCR service is not available."}), 500
-
     try:
-        # Read the file's content into memory
         file_bytes = file.read()
-        
-        # --- NEW: Preprocess Image ---
         processed_bytes = preprocess_image(file_bytes)
-        
-        # --- Run OCR ---
-        # We use paragraph=True to group text logically, which helps the regex.
-        # Pass the PROCESSED image bytes
         ocr_result = ocr_reader.readtext(processed_bytes, detail=0, paragraph=True)
-        
-        # Join all found text blocks into a single string
         raw_text = " \n ".join(ocr_result)
-        
-        # --- ADD THIS FOR DEBUGGING ---
         print("--- OCR RAW TEXT (Processed) ---")
         print(raw_text)
         print("--------------------------------")
-        
-        # Parse the raw text using your existing function
         parsed_data = parse_ocr_text(raw_text)
-        
-        # --- ADD THIS FOR DEBUGGING ---
         print("--- PARSED DATA (English Pattern) ---")
         print(parsed_data)
         print("-------------------------------------")
-        
-        # --- Store in session for final check ---
-        # This is CRITICAL for server-side verification
         session['ocr_data'] = parsed_data
-        
-        # Return the data to the client
         return jsonify({
             "success": True, 
             "parsed_data": parsed_data,
-            "raw_text": raw_text # Send raw text for debugging if you want
+            "raw_text": raw_text 
         })
-
     except Exception as e:
-        print(f"OCR Processing Error: {e}") # Log the error for debugging
+        print(f"OCR Processing Error: {e}") 
         return jsonify({"success": False, "error": f"An error occurred during OCR processing: {e}"}), 500
-
-# app.py (Modified voter_register route)
 
 @app.route('/voter-register', methods=['GET', 'POST'])
 def voter_register():
@@ -685,66 +511,49 @@ def voter_register():
                 r_val = candidate.get('region')
                 if r_val and r_val != 'All Regions':
                     available_regions.add(r_val)
-    sorted_regions = sorted(list(available_regions))
-    
-    # Initialize OCR variables for GET/Re-render paths
+    sorted_regions = sorted(list(available_regions))    
     parsed_data = {}
     ocr_results = []
-    
     if request.method == 'POST':
         data = request.form.to_dict()
-        # CRITICAL: Clean the incoming email of any accidental whitespace
         new_email = data.get('email', '').strip() 
         voter_photo_b64 = data.get('voterPhotoBase64')
-        # --- DUPLICATE CHECK LOGIC ---
         voters = load_voters()
         for voter_id, voter_data in voters.items():
-            # CRITICAL: Clean stored email before comparison, just in case
             stored_email = voter_data.get('email', '').strip()
             if stored_email and stored_email == new_email:
-                # If email is found:
                 flash('Registration failed: An account with this email address already exists. Please log in.', 'error')
-                # FIX: RENDER the template directly to show the flash message immediately
                 return render_template(
                     'truecast_voter_register.html',
                     parsed_data=data,
                     available_regions=sorted_regions
                 ) 
-        # --- END DUPLICATE CHECK LOGIC ---
         raw_pin = data.get('backupPin', '000000')
         hashed_pin = hash_pin(raw_pin) 
-        
         raw_answer = data.get('securityAnswer', '')
         if raw_answer:
             data['securityAnswer'] = hash_pin(raw_answer)
         data['idNumber'] = encrypt_data(data.get('idNumber', ''))
         data['email'] = encrypt_data(new_email)
         data['phone'] = encrypt_data(data.get('phone', ''))
-        data['address'] = encrypt_data(data.get('address', '')) # Encrypt address too, as it's PII
-        # --- FINAL SERVER-SIDE VERIFICATION ---
+        data['address'] = encrypt_data(data.get('address', '')) 
         ocr_data = session.get('ocr_data', {})
         if ocr_data:
             is_valid, error_message = validate_registration(data, ocr_data)
             if not is_valid:
                 flash(f'Registration Warning: {error_message}', 'warning')
-        
-        # If unique, proceed with saving 
         voter_id = f"VS{datetime.now().year}{random.randint(100000, 999999)}"
         data['voter_id'] = voter_id
-        data['registration_date'] = datetime.now(timezone.utc).isoformat() # Use aware datetime
+        data['registration_date'] = datetime.now(timezone.utc).isoformat() 
         data['status'] = 'Active' 
         data['backupPin'] = hashed_pin
         data['registration_photo'] = voter_photo_b64
         voters[voter_id] = data
         save_voters(voters)
-        session.pop('ocr_data', None) # Clear session data
+        session.pop('ocr_data', None) 
         flash(f'Registration successful! Your new Voter ID is {voter_id}. Please log in.', 'success')
         return redirect(url_for('voter_login', success='true'))
-
-    # --- GET request logic (Initial load) ---
-    # Clear any old session data on a fresh GET
     session.pop('ocr_data', None)
-
     return render_template(
         'truecast_voter_register.html',
         parsed_data=parsed_data,
@@ -756,33 +565,22 @@ def validate_registration(form_data, ocr_data):
     """
     Helper function to validate form data against OCR session data.
     """
-    # 1. Name Verification
     ocr_name = ocr_data.get('Full Name', 'Not Found').lower()
     if ocr_name == 'not found':
-        # Allow manual entry if OCR fails name detection, but log it
         print("Warning: Name not found in OCR, proceeding with manual entry trust.")
         pass 
-        # return False, "Could not read name from ID document. Please try again or use a clearer image."
     form_first = form_data.get('firstName', '').lower()
     form_last = form_data.get('lastName', '').lower()
-    # If OCR name exists, check if parts match
     if ocr_name != 'not found':
         if form_first not in ocr_name and form_last not in ocr_name:
-            # Only fail if NEITHER part matches.
-            # This accounts for "Ialid" vs "Khalid" OCR errors
              return False, f"Name on form ('{form_first} {form_last}') does not match name on ID ('{ocr_name}')."
-    # 2. Geo-Verification
     ocr_address = ocr_data.get('Address', 'Not Found').lower()
     if ocr_address == 'not found':
-        # Only fail on address if it's an Aadhaar card, which usually has it.
         if ocr_data.get('docType') == 'Aadhaar Card':
              return False, "Could not read address from ID document. Please try again or use a clearer image."
         else:
-            pass # Skip strict address check for non-Aadhaar
-    
+            pass 
     form_region = form_data.get('voterRegion')
-    
-    # --- UPDATED with comprehensive Indian State/City to Region mapping ---
     region_map = {
         # North India
         'delhi': 'North District',
@@ -794,8 +592,7 @@ def validate_registration(form_data, ocr_data):
         'jammu': 'North District',
         'kashmir': 'North District',
         'uttarakhand': 'North District',
-        'uttar pradesh': 'North District', # Can also be Central
-        
+        'uttar pradesh': 'North District', 
         # South India
         'karnataka': 'South District',
         'bengaluru': 'South District',
@@ -808,7 +605,6 @@ def validate_registration(form_data, ocr_data):
         'hyderabad': 'South District',
         'andhra pradesh': 'South District',
         'vizag': 'South District',
-        
         # East India
         'west bengal': 'East District',
         'kolkata': 'East District',
@@ -818,7 +614,6 @@ def validate_registration(form_data, ocr_data):
         'jharkhand': 'East District',
         'assam': 'East District',
         'guwahati': 'East District',
-        
         # West India
         'maharashtra': 'West District',
         'mumbai': 'West District',
@@ -829,7 +624,6 @@ def validate_registration(form_data, ocr_data):
         'jaipur': 'West District',
         'pali': 'West District',
         'goa': 'West District',
-        
         # Central India
         'madhya pradesh': 'Central District',
         'bhopal': 'Central District',
@@ -837,79 +631,57 @@ def validate_registration(form_data, ocr_data):
         'chhattisgarh': 'Central District',
         'raipur': 'Central District'
     }
-    
-    expected_region = 'All Regions' # Default
+    expected_region = 'All Regions' 
     for keyword, region in region_map.items():
         if keyword in ocr_address:
             expected_region = region
             break
-            
     if form_region != expected_region and form_region != 'All Regions':
          return False, f"The address on your ID (in '{ocr_address}') suggests you are in '{expected_region}', but you selected '{form_region}'. Please select the correct region."
-
     return True, "Success"
-
-# app.py (New Route)
 
 @app.route('/api/verify-face-login', methods=['POST'])
 def verify_face_login():
     data = request.get_json()
     voter_identifier = data.get('voterId')
     login_photo_b64 = data.get('loginPhotoBase64')
-
     if not voter_identifier or not login_photo_b64:
         print("Face Verification Error: Missing ID or photo data in request.")
         return jsonify({'success': False, 'error': 'Missing ID or photo data in request.'}), 400
-
     target_voter = get_voter_by_identifier(voter_identifier)
-
     if not target_voter:
         print(f"Face Verification Error: Voter ID {voter_identifier} not found in database.")
         return jsonify({'success': False, 'error': 'Voter not found.'}), 404
-
     registration_photo_b64 = target_voter.get('registration_photo')
     if not registration_photo_b64:
         print(f"Face Verification Error: Reference photo missing for voter {voter_identifier}.")
         return jsonify({'success': False, 'error': 'No reference photo found for this voter. Please use PIN or OTP.'}), 400
-
-    # 2. Run the Face Verification
     try:
-        # Calls the external function. This is the result we need to debug.
         match, message, score = verify_face_match(registration_photo_b64, login_photo_b64)
-        
-        # --- CRITICAL DEBUGGING LOG ---
         print(f"--- BIOMETRIC VERIFICATION RESULT ---")
         print(f"Voter: {voter_identifier}, Match: {match}, Score: {score}")
         print(f"Message: {message}")
         print(f"-------------------------------------")
-        # -------------------------------------
-
         if match:
-            # 3. Simulate successful login (Same logic as voter_login/otp_verify)
             session['logged_in'] = True
             session['voter_id'] = target_voter['voter_id']
-            # ... (other session data) ...
             session['email'] = decrypt_data(target_voter.get('email'))
             session['voter_region'] = target_voter.get('voterRegion')
             first = target_voter.get('firstName', '')
             last = target_voter.get('lastName', '')
             session['full_name'] = f"{first} {last}".strip() or 'Voter'
-
             return jsonify({
                 'success': True, 
                 'message': f'Face verified! Score: {score}. Login successful.',
                 'redirect': url_for('voting_dashboard')
             })
         else:
-            # Display the actual error message and score returned by the external module
             return jsonify({'success': False, 'error': f'Verification failed (Score: {score}). {message}'}), 401
-
     except Exception as e:
         print(f"Face Verification FATAL Error: {e}")
         return jsonify({'success': False, 'error': 'Internal verification error. Check server logs for details.'}), 500
 @app.route('/voter-login', methods=['GET', 'POST'])
 def voter_login():
-    # If user is already logged in, redirect them to the dashboard
     if 'logged_in' in session:
         return redirect(url_for('voting_dashboard'))
     if request.method == 'POST':
@@ -918,10 +690,8 @@ def voter_login():
         input_pin = data.get('backupPin')
         voters = load_voters()
         authenticated_voter = None
-        # --- JSON Database Lookup Logic ---
         for voter_id, voter_data in voters.items():
             stored_voter_id = voter_data.get('voter_id')
-            # Check for match by voter_id OR email
             if stored_voter_id == voter_id_or_email:
                 authenticated_voter = voter_data
                 break
@@ -930,49 +700,31 @@ def voter_login():
             if decrypted_email == voter_id_or_email:
                 authenticated_voter = voter_data
                 break
-        # --- End JSON Database Lookup Logic ---
         if authenticated_voter:
             stored_hash = authenticated_voter.get('backupPin')
-            # This logic handles *both* the initial PIN check *and* the final form submission
             if input_pin:
-                # --- FIX: Check if the PIN is INCORRECT (check_pin returns False) ---
                 if not stored_hash or not check_pin(input_pin, stored_hash):
-                    # Authentication failure: PIN mismatch or no hash stored
-                    return jsonify({"success": False, "error": "Invalid PIN provided. Access denied."}), 401
-                
-                # If we reach this point, the PIN is CORRECT.
-                # The code will now fall through to the successful login establishment block below.
-                
-            # If input_pin is None, this means a different auth method was used, 
-            # and the frontend is responsible for signaling final success.
+                    return jsonify({"success": False, "error": "Invalid PIN provided. Access denied."}), 401                
             elif not input_pin and 'backupPin' in data:
-                 # This covers the case where the final submit fires but no PIN was entered
-                 # (e.g. simulated auth)
-                 pass # Allow simulated auth to proceed
-            # Login successful: Establish session
-            session['logged_in'] = True # CRITICAL: Set the logged_in flag
+                 pass 
+            session['logged_in'] = True 
             session['voter_id'] = authenticated_voter['voter_id']
             session['email'] = decrypt_data(authenticated_voter.get('email'))
-            # Construct full name reliably from registration fields ---
             first_name = authenticated_voter.get('firstName', '')
             last_name = authenticated_voter.get('lastName', '')
             if first_name or last_name:
                 clean_full_name = f"{first_name} {last_name}".strip()
-                # Construct name from the standard fields found in your JSON data
                 session['full_name'] = clean_full_name
             else:
-                # Fallback to 'Full Name' key (from OCR) or the default 'Voter' string
                 session['full_name'] = authenticated_voter.get('Full Name', 'Voter')
             session['voter_region'] = authenticated_voter.get('voterRegion')
-            # The frontend is expecting a 'redirect' URL in the JSON response
             next_url = request.args.get('next') or url_for('voting_dashboard')
             return jsonify({"success": True, "message": "Login successful!", "redirect": next_url})
         else:
-            return jsonify({"success": False, "error": "Voter ID or Email not found."}), 404    # Render the login page (including the success message from registration redirect)
+            return jsonify({"success": False, "error": "Voter ID or Email not found."}), 404    
     success_msg = request.args.get('success')
     return render_template('truecast_voter_login.html', success=success_msg)
 
-# app.py (New Helper Function)
 def get_voter_by_identifier(identifier):
     """
     Looks up a voter by unencrypted voter_id or by decrypting all stored emails.
@@ -980,86 +732,60 @@ def get_voter_by_identifier(identifier):
     """
     voters = load_voters()
     for voter_data in voters.values():
-        # Check 1: Match by UNENCRYPTED Voter ID
         if voter_data.get('voter_id') == identifier:
             return voter_data
-        
-        # Check 2: Match by DECRYPTED Email
         encrypted_email = voter_data.get('email')
         decrypted_email = decrypt_data(encrypted_email)
         if decrypted_email == identifier:
             return voter_data
-            
     return None
 
 @app.route('/logout')
 def logout():
-    session.pop('logged_in', None) # Ensure the logged_in flag is removed
+    session.pop('logged_in', None)
     session.pop('voter_id', None)
     session.pop('email', None)
-    session.pop('full_name', None) # Clears the name displayed on the landing page
-    session.pop('voter_region', None) # NEW: Clear region
-    
-    # FIX: Redirect directly to the home page ('home' endpoint, which is '/')
+    session.pop('full_name', None) 
+    session.pop('voter_region', None) 
     return redirect(url_for('home'))
 
 @app.route('/voting-dashboard', methods=['GET', 'POST'])
 @login_required
 def voting_dashboard():
     voter_id = session.get('voter_id')
-    voter_region = session.get('voter_region')
-    
-    # --- NEW: Get Active Election & Filter Ballot ---
+    voter_region = session.get('voter_region')    
     active_election = get_active_election()
-    
-    # FIX for Problem 3: Load ALL elections
     all_elections = load_elections()
-
     if not active_election:
-        # If no active election, skip the complex logic and render the inactive state
         return render_template('truecast_voting_dashboard.html', 
                                voter_id=voter_id,
                                full_name=session.get('full_name', 'Voter'),
                                voter_region=voter_region,
                                has_voted=False,
                                election_active=False,
-                               election={},              # Safe default
-                               filtered_ballot=[],       # Safe default
-                               all_race_ids=[],          # Safe default (The required races)
-                               all_elections=all_elections, # FIX: Passed all elections
+                               election={},              
+                               filtered_ballot=[],      
+                               all_race_ids=[],        
+                               all_elections=all_elections, 
                                previous_votes={})
-                               
-    # Filter the ballot based on the voter's region
     filtered_ballot = []
-    
-    # Use this list for required votes (Fix 1)
     final_required_races_list = []
-
     for race in active_election.get('races', []):
         race_copy = race.copy()
         race_copy['candidates'] = []
-        
-        # Filter candidates based on region matching OR candidate region is 'All Regions'
         for candidate in race.get('candidates', []):
             candidate_region = candidate.get('region')
             if candidate_region == voter_region or candidate_region == 'All Regions':
                 race_copy['candidates'].append(candidate)
-
-        # Only include the race if it has candidates for the voter's region
         if race_copy['candidates']:
             filtered_ballot.append(race_copy)
-            # FIX for Problem 1: This is the correct list of races the voter must complete
             final_required_races_list.append(race_copy['name']) 
-    
-    # --- END NEW: Get Active Election & Filter Ballot ---
     voters_data = load_voters()
     voter_info = voters_data.get(voter_id)
     if not voter_info:
         flash('Voter information could not be loaded.', 'error')
         return redirect(url_for('login'))
-
     full_name = f"{voter_info.get('firstName', '')} {voter_info.get('lastName', '')}"
-    
     votes_data = load_votes()
     active_election_id = active_election['id'] if active_election else 'N/A'
     if request.method == 'POST':
@@ -1068,73 +794,39 @@ def voting_dashboard():
         has_voted = voter_info.get('vote_status', {}).get(active_election_id, False)
         if has_voted:
             return jsonify({'success': False, 'error': 'Your vote has already been cast for this election.', 'transactionHash': 'ALREADY_CAST'})
-    
-        # FIX for Problem 1: Server-side validation must check against the required list
         required_race_slugs = [name.replace(' ', '-').lower() for name in final_required_races_list]        
         for race_slug in required_race_slugs:
             if not selections.get(race_slug):
-                # Attempt to get the original race name for a better error message
                 original_race_name = next((r['name'] for r in filtered_ballot if r['name'].replace(' ', '-').lower() == race_slug), race_slug)
                 return jsonify({'success': False, 'error': f'Please make a selection for the {original_race_name} race.'})
-        
-        # Generates a unique, anonymous key for this vote entry in votes.json
         anonymous_token = hashlib.sha256(os.urandom(32)).hexdigest()
-
-        # ------------------------------------------------------------------
-        # --- START: CHAIN OF CUSTODY IMPLEMENTATION (FIXED) ---
-        # ------------------------------------------------------------------
-
-        # 1. Get the hash of the last vote record to maintain the chain
         previous_hash = get_last_hash()
-
-        # 2. Define the vote record payload, linking it to the previous record
         vote_record = {
             'electionId': active_election_id,
             'timestamp': datetime.now(IST).isoformat(),
-            'previous_hash': previous_hash,        # The cryptographic link (Chain of Custody)
-            **selections # Store the actual votes
+            'previous_hash': previous_hash,       
+            **selections
         }
-
-        # 3. Calculate the new record's unique hash (the 'current_hash' of the block)
-        # This hash is the immutable receipt (transaction hash)
         transaction_hash = hash_record(vote_record)
         vote_record['current_hash'] = transaction_hash
-        
-        # 4. Save the full, chained record
         votes_data[anonymous_token] = vote_record 
         save_votes(votes_data)
-
-        # ------------------------------------------------------------------
-        # --- END: CHAIN OF CUSTODY IMPLEMENTATION ---
-        # ------------------------------------------------------------------
-        
-
         if 'vote_status' not in voter_info:
             voter_info['vote_status'] = {}
         if 'receipts' not in voter_info:
-            voter_info['receipts'] = {}
-            
+            voter_info['receipts'] = {}   
         voter_info['vote_status'][active_election_id] = True
-        
-        # Encrypt the final hash (the immutable receipt) for the voter
         encrypted_hash = encrypt_data(transaction_hash)
-        voter_info['receipts'][active_election_id] = encrypted_hash
-        
-        save_voters(voters_data) # Update voter's status and receipt
-
+        voter_info['receipts'][active_election_id] = encrypted_hash 
+        save_voters(voters_data) 
         return jsonify({'success': True, 'transactionHash': transaction_hash})
-
     has_voted = voter_info.get('vote_status', {}).get(active_election_id, False)
-    
-    # Retrieve the transaction hash from the voter's record for display (if voted)
     previous_votes = {}
     if has_voted:
-        # We only need the transaction hash for the front-end to display the receipt link
         encrypted_hash = voter_info.get('receipts', {}).get(active_election_id)
         tx_hash = decrypt_data(encrypted_hash)
         if tx_hash and tx_hash != "ENCRYPTION_FAILED":
-             previous_votes = {'transactionHash': tx_hash} # Mimic the old structure for previous_votes
-
+             previous_votes = {'transactionHash': tx_hash} 
     return render_template(
         'truecast_voting_dashboard.html',
         voter_id=voter_id,
@@ -1142,9 +834,9 @@ def voting_dashboard():
         voter_region=voter_region,
         election_active=True,
         election=active_election,
-        all_elections=all_elections, # FIX: Pass all elections for Problem 3
+        all_elections=all_elections, 
         filtered_ballot=filtered_ballot,
-        all_race_ids=final_required_races_list, # FIX for Problem 1: Use the guaranteed list of required races
+        all_race_ids=final_required_races_list, 
         has_voted=has_voted,
         previous_votes=previous_votes
     )
@@ -1155,37 +847,23 @@ def verify_vote_chain_integrity():
     Returns: (bool, str message)
     """
     votes_data = load_votes()
-    
     if not votes_data:
         return True, "No votes to verify (chain is empty)."
-
-    # Get a list of the records in insertion order
     records = list(votes_data.values())
-    
-    # Start verification from the second record (index 1)
     for i in range(1, len(records)):
         current_record = records[i]
         previous_record = records[i - 1]
-        
-        # 1. Verify the 'previous_hash' link
         expected_previous_hash = previous_record.get('current_hash')
         actual_previous_hash = current_record.get('previous_hash')
-
         if actual_previous_hash != expected_previous_hash:
             return False, f"Chain break detected at record #{i}! Expected hash: {expected_previous_hash}, Found: {actual_previous_hash}"
-
-        # 2. Verify the 'current_hash' content
         record_for_hashing = current_record.copy()
         record_for_hashing.pop('current_hash', None) 
-        
         recalculated_hash = hash_record(record_for_hashing)
-
         if recalculated_hash != current_record.get('current_hash'):
             return False, f"Integrity break detected at record #{i}! Recalculated hash does not match stored hash."
-
     return True, "Chain integrity verified successfully."
 
-# --- End Election Route (Admin) ---
 @app.route('/admin/end-election/<string:election_id>', methods=['POST'])
 @admin_required
 def end_election(election_id):
@@ -1194,19 +872,16 @@ def end_election(election_id):
     for i, election in enumerate(elections):
         if election.get('id') == election_id:
             elections[i]['status'] = 'Ended'
-            elections[i]['endDate'] = datetime.now(IST).isoformat() # Mark end time immediately
+            elections[i]['endDate'] = datetime.now(IST).isoformat() 
             found = True
             break
-    
     if found:
         save_elections(elections)
         flash(f'Election "{election_id}" has been officially ENDED. Results are now ready for review.', 'success')
     else:
         flash(f'Election ID {election_id} not found.', 'error')
-        
     return redirect(url_for('admin_dashboard'))
 
-# --- NEW: Publish Results Route (Admin) ---
 @app.route('/admin/publish-results/<string:election_id>', methods=['POST'])
 @admin_required
 def publish_results(election_id):
@@ -1217,56 +892,41 @@ def publish_results(election_id):
             elections[i]['published_results'] = True
             found = True
             break
-    
     if found:
         save_elections(elections)
         flash(f'Results for "{election_id}" have been PUBLISHED to the voters.', 'success')
     else:
         flash(f'Election ID {election_id} not found.', 'error')
-        
     return redirect(url_for('admin_dashboard'))
-# --- End NEW Route ---
 
 @app.route('/vote-verification', methods=['GET', 'POST'])
 def vote_verification():
-    # Allow non-logged-in users to access, but logged-in is fine too
     return render_template('truecast_vote_verification.html')
-
 
 @app.route('/api/verify_vote', methods=['POST'])
 def verify_vote():
     data = request.get_json()
     query = data.get('query')
     all_votes = load_votes()
-    # Find a cast vote matching the hash or voter ID
     vote_record = None
     voter_id_found = "Voter ID is kept anonymous for security."
     for anonymous_key, vote_details in all_votes.items():
-        # Check if the query matches the 'current_hash' (the transaction hash receipt)
         if isinstance(vote_details, dict) and vote_details.get('current_hash') == query:
             vote_record = vote_details
             break
-    if not vote_record and query.startswith('VS'): # Check if search originated from a Voter ID
+    if not vote_record and query.startswith('VS'): 
         voters_data = load_voters()
         voter_info = voters_data.get(query)
-        
         if voter_info:
-            # Attempt to find the transaction hash associated with the *latest* election receipt
             latest_receipt_encrypted = next(iter(reversed(list(voter_info.get('receipts', {}).values()))), None)
-            
             if latest_receipt_encrypted:
-                # Decrypt the hash stored in the voter's receipt
                 latest_receipt_hash = decrypt_data(latest_receipt_encrypted) 
-                
-                # Now search votes.json by this hash
                 for anonymous_key, vote_details in all_votes.items():
-                    # --- FIX 2: Use the 'current_hash' key for internal lookup ---
                     if vote_details.get('current_hash') == latest_receipt_hash:
                         vote_record = vote_details
-                        voter_id_found = query # Only display ID if search originated from ID
+                        voter_id_found = query
                         break
     if vote_record:
-        # Get the associated election name
         election_id = vote_record.get('electionId')
         election_name = "N/A"
         if election_id:
@@ -1275,17 +935,13 @@ def verify_vote():
                 election_name = election.get('title', f"Election {election_id}")
         stored_timestamp = vote_record.get('timestamp')
         display_timestamp = stored_timestamp if stored_timestamp else datetime.now(IST).isoformat()
-        
-        # --- FIX 3: Use 'current_hash' for the response's 'transactionHash' field ---
-        # The front-end expects 'transactionHash', so we pass the value of 'current_hash' here.
         final_transaction_hash = vote_record.get('current_hash', 'N/A')
-        # Construct the response using the found vote record
         demo_vote_data = {
             "voterId": voter_id_found,
             "election": election_name,
             "timestamp": display_timestamp,
             "status": "Confirmed",
-            "transactionHash": final_transaction_hash, # Now holds the correct hash
+            "transactionHash": final_transaction_hash,
             "blockNumber": random.randint(10000, 20000), 
             "confirmations": random.randint(100, 500),
             "gasUsed": random.randint(20000, 30000),
@@ -1295,27 +951,23 @@ def verify_vote():
         return jsonify({"success": True, "data": demo_vote_data})
     return jsonify({"success": False, "error": "Vote not found."}), 404
 
-
 @app.route('/geo-verification')
 def geo_verification():
-    # This requires a 'truecast_geo_verification.html' template
     return render_template('truecast_geo_verification.html')
 
 @app.route('/admin-login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        # This is a placeholder for actual admin authentication
         username = request.form.get('username')
         password = request.form.get('password')
-        if username == 'admin' and password == 'password': # IMPORTANT: Use secure credentials
+        if username == 'admin' and password == 'password': 
             session['admin_logged_in'] = True
             flash('Admin login successful!', 'success')
-            return redirect('/admin-dashboard') # Assuming you have an admin dashboard
+            return redirect('/admin-dashboard') 
         else:
             flash('Invalid admin credentials.', 'error')
     return render_template('truecast_admin_login.html')
 
-# --- Admin Dashboard Route (Modified to fix UnboundLocalError and Vote Count) ---
 @app.route('/admin-dashboard')
 @admin_required
 def admin_dashboard():
@@ -1324,13 +976,13 @@ def admin_dashboard():
     elections = load_elections() 
     active_election = get_active_election()
     total_voters = len(voters_data)
-    total_votes_cast = len(votes_data) # Total votes across ALL elections
+    total_votes_cast = len(votes_data) 
     active_election_votes = 0
     active_election_races = 0 
     active_election_candidates = 0
     if active_election:
         active_election_id = active_election['id']
-        active_election_races = len(active_election.get('races', [])) # Count races
+        active_election_races = len(active_election.get('races', [])) 
         active_election_candidates = sum(
             len(race.get('candidates', [])) 
             for race in active_election.get('races', [])
@@ -1338,21 +990,17 @@ def admin_dashboard():
         for vote in votes_data.values():
                 if isinstance(vote, dict) and vote.get('electionId') == active_election_id:
                     active_election_votes += 1
-        
     turnout = (total_votes_cast / total_voters * 100) if total_voters > 0 else 0
     election_vote_counts = {}
     for vote in votes_data.values():
         election_id = vote.get('electionId')
         if election_id:
-            election_vote_counts[election_id] = election_vote_counts.get(election_id, 0) + 1
-            
-    # Iterate through elections to add the calculated vote count
+            election_vote_counts[election_id] = election_vote_counts.get(election_id, 0) + 1            
     elections_for_template = []
     for election in elections:
         election_id = election.get('id')
         election['total_votes'] = election_vote_counts.get(election_id, 0) # Attach votes
         elections_for_template.append(election)
-    # Get recent registrations (last 5)
     try:
         recent_registrations = sorted(
             voters_data.values(), 
@@ -1361,21 +1009,15 @@ def admin_dashboard():
         )[:5]
     except Exception:
         recent_registrations = list(voters_data.values())[:5]
-
-    # Vote distribution (aggregated across all elections for overview)
     results = {}
     voted_count = total_votes_cast
     not_voted_count = total_voters - total_votes_cast
-    
     turnout_data = {
         'labels': ['Votes Cast', 'Eligible Voters (Not Voted)'],
         'data': [voted_count, not_voted_count]
     }
-    
     bar_chart_data = {'labels': ['No Races'], 'datasets': []} 
-    
     if votes_data:
-        # Simple count across all elections for aggregate dashboard data
         for vote in votes_data.values():
             if isinstance(vote, dict):
                 for race_slug, candidate_slug in vote.items():
@@ -1383,33 +1025,26 @@ def admin_dashboard():
                         race_display = race_slug.replace('-', ' ').title()
                         race_tally = results.setdefault(race_display, {})
                         race_tally[candidate_slug] = race_tally.get(candidate_slug, 0) + 1 
-
         if results:
             top_race_slug = next(iter(results.keys()), None)
-            
             if top_race_slug:
                 race_data = results[top_race_slug]
-                
                 bar_chart_data['labels'] = list(race_data.keys())
                 bar_chart_data['datasets'].append({
                     'label': top_race_slug,
                     'data': list(race_data.values()),
                     'backgroundColor': ['#3498db', '#27ae60', '#f1c40f', '#e74c3c'] 
                 })
-
-
     return render_template(
         'truecast_admin_dashboard.html',
         total_voters=total_voters,
         total_votes_cast=total_votes_cast,
         turnout=turnout,
-        # NEW KPIs
         active_election_races=active_election_races, 
         active_election_candidates=active_election_candidates,
-        # END NEW KPIs
         recent_registrations=recent_registrations,
         all_voters=voters_data.values(),
-        elections=elections_for_template, # Use the enhanced list
+        elections=elections_for_template, 
         all_elections_list=elections,
         active_election=active_election,
         active_election_votes=active_election_votes,
@@ -1417,32 +1052,21 @@ def admin_dashboard():
         turnout_data=turnout_data,
         bar_chart_data=bar_chart_data
     )
-# --- End Admin Dashboard Route (Modified) ---
 
-# --- Create Election Route (Modified) ---
 @app.route('/admin/create-election', methods=['GET', 'POST'])
 @admin_required
 def create_election():
     if request.method == 'POST':
         form_data = request.form.to_dict(flat=False)
         elections = load_elections()
-        
-        # Get raw strings from form (e.g., "2025-11-18T14:00")
         start_raw = request.form.get('startDate')
-        end_raw = request.form.get('endDate')
-        
-        # Convert naive datetime-local into proper IST-aware datetime
+        end_raw = request.form.get('endDate')        
         start_dt = datetime.strptime(start_raw, "%Y-%m-%dT%H:%M")
         end_dt = datetime.strptime(end_raw, "%Y-%m-%dT%H:%M")
-
-        # Attach IST offset correctly as local time (no shifting)
         start_dt = start_dt.replace(tzinfo=IST)
         end_dt = end_dt.replace(tzinfo=IST)
-
-        # Always save full ISO 8601 with offset
         start_iso = start_dt.isoformat()
         end_iso = end_dt.isoformat()
-
         election_data = {
             'id': f"ELEC{len(elections) + 1}-{datetime.now().strftime('%Y%m%d')}",
             'title': request.form.get('electionName'),
@@ -1452,66 +1076,42 @@ def create_election():
             'status': 'Active',
             'published_results': False,
             'races': []
-        }
-
-        
-        # Helper to extract the index from keys like 'races[1][name]'
+        }       
         race_indices = set()
         for key in form_data.keys():
             match = re.search(r'races\[(\d+)\]', key)
             if match:
                 race_indices.add(match.group(1))
-
-        for race_index in sorted(list(race_indices)):
-            
+        for race_index in sorted(list(race_indices)):           
             race_entry = {
                 'name': request.form.get(f'races[{race_index}][name]'),
                 'type': request.form.get(f'races[{race_index}][type]'),
                 'candidates': []
-            }
-            
-            # Find candidate keys for this race
+            }          
             candidate_map = {}
             for k, v in form_data.items():
-                # Check for keys matching the current race index
                 cand_match = re.search(r'races\[%s\]\[candidates\]\[(\d+)\]\[(name|party|photoUrl|region)\]' % race_index, k)
                 if cand_match:
                     cand_index = cand_match.group(1)
                     field = cand_match.group(2)
                     if cand_index not in candidate_map:
                         candidate_map[cand_index] = {}
-                    candidate_map[cand_index][field] = v[0] # v[0] because form_data is a list of values
-
+                    candidate_map[cand_index][field] = v[0] 
             for index, cand_data in candidate_map.items():
-                # NEW: Ensure region is captured
                 region = cand_data.get('region', 'All Regions') 
-                
                 race_entry['candidates'].append({
                     'name': cand_data.get('name', 'N/A'),
                     'party': cand_data.get('party', 'N/A'),
                     'photoUrl': cand_data.get('photoUrl', '👤'),
                     'region': region 
                 })
-
             election_data['races'].append(race_entry)
-
-        # Save the new election
         elections.append(election_data)
-        save_elections(elections)
-        
+        save_elections(elections)     
         flash(f'Election "{election_data["title"]}" successfully created and is now active!', 'success')
         return redirect(url_for('admin_dashboard'))
-
-    # GET request: Render the election creation form
-    # Regions used for the candidate region dropdown
-    default_regions = ['North District', 'South District', 'East District', 'West District', 'Central District', 'All Regions']
-    
+    default_regions = ['North District', 'South District', 'East District', 'West District', 'Central District', 'All Regions']  
     return render_template('truecast_createElections.html', default_regions=default_regions)
-# --- End Create Election Route (Modified) ---
-
-
-# app.py (Modified results route)
-# FIX for Problem 4: Show all published elections and allow navigation
 
 @app.route('/admin-logout')
 def admin_logout():
@@ -1523,60 +1123,39 @@ def admin_logout():
 @app.route('/admin/audit-and-publish/<string:election_id>', methods=['POST'])
 @admin_required
 def audit_and_publish(election_id):
-    
-    # 1. Perform the Cryptographic Chain Audit
-    # (The verify_vote_chain_integrity function is already defined in app.py)
     is_chain_valid, message = verify_vote_chain_integrity()
-
     if not is_chain_valid:
-        # If audit fails, do NOT publish. Log error and redirect to admin dashboard.
         print(f"CRITICAL AUDIT FAILURE for {election_id}: {message}")
         flash(f'AUDIT FAILED for {election_id}: Chain integrity check failed. Results CANNOT be published. Please run a full Audit from the dashboard.', 'error')
         return redirect(url_for('admin_dashboard'))
-
-    # 2. If Audit is VALID, proceed with publishing
     elections = load_elections()
     found = False
-    
     for i, election in enumerate(elections):
         if election.get('id') == election_id:
-            # Check if it's already published to prevent overwriting messages
             if election.get('published_results', False):
                  flash(f'Results for "{election_id}" were already published.', 'warning')
                  return redirect(url_for('admin_dashboard'))
-            
             elections[i]['published_results'] = True
             found = True
             break
-    
     if found:
         save_elections(elections)
         flash(f'✅ Audit Passed & Results for "{election_id}" have been successfully PUBLISHED to the voters.', 'success')
     else:
         flash(f'Election ID {election_id} not found.', 'error')
-        
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/results')
 def results():
     votes_data = load_votes()
-    elections = load_elections()
-    
-    # 1. Get ALL published elections
-    # Note: Using .get() for 'published_results' in case the key is missing from old records
-    published_elections = [e for e in elections if e.get('published_results')]
-    
-    # 2. Determine which election to display
+    elections = load_elections()    
+    published_elections = [e for e in elections if e.get('published_results')]    
     target_election_id = request.args.get('election_id')
     display_election = None
-    
     if target_election_id:
-        display_election = get_election_by_id(target_election_id)
-    
-    # Default to the most recent published one if none selected or the selected one isn't published
+        display_election = get_election_by_id(target_election_id)    
     if display_election is None or not display_election.get('published_results'):
         display_election = next((e for e in reversed(published_elections)), None)
-
     if display_election is None:
         return render_template('truecast_results.html', 
                            results={}, 
@@ -1584,54 +1163,42 @@ def results():
                            message='No election results have been certified and published by the administration.',
                            published_list=published_elections,
                            current_election_id=None)
-
-    # Tally results for the chosen/default election
     target_election_id = display_election['id']
     election_title = display_election.get('title', f"Results for {target_election_id}")
-    
     results_tally = {}
-    METADATA_KEYS = ['transactionHash', 'TransactionHash', 'electionId', 'ElectionId', 'timestamp']
-    
+    METADATA_KEYS = ['transactionHash', 'TransactionHash', 'electionId', 'ElectionId', 'timestamp','previous_hash', 
+        'current_hash']
+    target_election_id = display_election['id']
+    election_title = display_election.get('title', f"Results for {target_election_id}")
+    results_tally = {} 
     for vote_key, vote in votes_data.items():
         if isinstance(vote, dict) and vote.get('electionId') == target_election_id:
             for race_slug, candidate_slug in vote.items():
                 if race_slug not in METADATA_KEYS: 
                     race_tally = results_tally.setdefault(race_slug, {})
                     race_tally[candidate_slug] = race_tally.get(candidate_slug, 0) + 1
-
     return render_template('truecast_results.html', 
                            results=results_tally, 
                            election_title=election_title,
                            message=None, 
-                           published_list=published_elections, # Pass the list
+                           published_list=published_elections, 
                            current_election_id=target_election_id)
-# --- End of Results Route Fix ---
 
-# --- Admin Live Results Route ---
 @app.route('/admin/results')
 @admin_required
 def admin_live_results():
     voters_data = load_voters()
     votes_data = load_votes()
     elections = load_elections()
-    active_election = get_active_election()
-    
-    # Determine which election to show based on URL parameter or active status
+    active_election = get_active_election()    
     election_id = request.args.get('election_id')
-    target_election = None
-    
-    # 1. Check if a specific election ID was requested (e.g., from the 'Review Final Results' button)
+    target_election = None    
     if election_id:
-        target_election = get_election_by_id(election_id)
-    
-    # 2. If no specific ID, default to the active election
+        target_election = get_election_by_id(election_id)    
     if not target_election:
-        target_election = active_election
-        
-    # 3. If no active, show the most recent ended election for review
+        target_election = active_election        
     if not target_election and elections:
         target_election = next((e for e in reversed(elections) if e.get('status') == 'Ended'), None)
-
     if not target_election:
          return render_template('truecast_admin_results.html', 
                                results={}, 
@@ -1640,86 +1207,53 @@ def admin_live_results():
                                is_published=False,
                                election_id='N/A',
                                total_votes_in_election=0)
-                               
     target_election_id = target_election['id']
     election_title = target_election.get('title', f"Results for {target_election_id}")
     is_active = target_election.get('status') == 'Active'
-    is_published = target_election.get('published_results', False)
-    
+    is_published = target_election.get('published_results', False)  
     results_tally = {}
-    total_votes_in_election = 0 # NEW: Initialize total counter
-    
+    total_votes_in_election = 0    
     METADATA_KEYS_TO_EXCLUDE = [
         'transactionHash', 'TransactionHash', 
         'electionId', 'ElectionId', 
         'timestamp', 
-        'previous_hash', 'current_hash' # <-- CRITICAL HASH REMOVAL
+        'previous_hash', 'current_hash' 
     ]
-
-    # Only tally votes for the selected election
     for vote_key, vote in votes_data.items():
-        if isinstance(vote, dict) and vote.get('electionId') == target_election_id:
-            
-            total_votes_in_election += 1 
-            
+        if isinstance(vote, dict) and vote.get('electionId') == target_election_id: 
+            total_votes_in_election += 1    
             for race_slug, candidate_slug in vote.items():
                 if race_slug not in METADATA_KEYS_TO_EXCLUDE:
-                    
                     race_tally = results_tally.setdefault(race_slug, {})
-                    race_tally[candidate_slug] = race_tally.get(candidate_slug, 0) + 1
-                    
+                    race_tally[candidate_slug] = race_tally.get(candidate_slug, 0) + 1 
     total_eligible_voters = len(voters_data)
-
-    # 2. Turnout Rate for This Election
-    # We already calculated 'total_votes_in_election' in the existing loop
     if total_eligible_voters > 0:
         turnout_rate = round((total_votes_in_election / total_eligible_voters) * 100, 2)
     else:
         turnout_rate = 0.0
-
-    # 3. Overall Margin Percentage (Tightest Race)
-    # We need to iterate over the 'results_tally' created earlier
     overall_margin_percentage = 'N/A'
     tightest_margin_found = float('inf')
     tightest_race_name = ''
-
     for race_slug, candidates in results_tally.items():
-        
-        # Sort candidates to find winner and runner-up
-        # candidates.items() -> list of (candidate_slug, count) tuples
         sorted_candidates = sorted(candidates.items(), key=lambda item: item[1], reverse=True)
-        
-        total_votes_in_race = sum(candidates.values())
-        
-        # Only calculate margin if there are at least two candidates and some votes
+        total_votes_in_race = sum(candidates.values())        
         if len(sorted_candidates) >= 2 and total_votes_in_race > 0:
             winner_count = sorted_candidates[0][1]
-            runner_up_count = sorted_candidates[1][1]
-            
+            runner_up_count = sorted_candidates[1][1]           
             raw_margin = winner_count - runner_up_count
-            margin_percentage = (raw_margin / total_votes_in_race) * 100
-            
+            margin_percentage = (raw_margin / total_votes_in_race) * 100          
             if margin_percentage < tightest_margin_found:
                 tightest_margin_found = margin_percentage
                 tightest_race_name = race_slug
-
     if tightest_race_name:
-        # Round the tightest margin to two decimal places
         overall_margin_percentage = round(tightest_margin_found, 2)
-        # Note: You might want to pass the race name too for context
-
-    # 4. Available Regions
-    # Collect unique regions from the entire election definition
     available_regions = set()
     for race in target_election.get('races', []):
         for candidate in race.get('candidates', []):
             region = candidate.get('region')
             if region:
-                available_regions.add(region)
-                
-    # Convert to a sorted list for the dropdown
+                available_regions.add(region)                
     sorted_available_regions = sorted(list(available_regions))    
-    
     return render_template('truecast_admin_results.html', 
                            results=results_tally, 
                            election_title=election_title,
@@ -1732,75 +1266,48 @@ def admin_live_results():
                             overall_margin_percentage=overall_margin_percentage,
                             available_regions=sorted_available_regions)
 
-# --- Ensure all auxiliary pages are defined for URL building ---
-# Note: These require corresponding HTML files in the 'templates' folder
-# (Assuming you have these files in your 'templates' directory)
-
-# --- Placeholder Routes ---
-# We add these so the server doesn't crash if a link is clicked.
-# You will need to create the corresponding .html files in your 'templates' folder.
-
 @app.route('/api/admin/get-chart-data/<string:election_id>')
 @admin_required
 def get_chart_data(election_id):
     voters_data = load_voters()
-    votes_data = load_votes()
-    
-    # 1. Total Registered Voters for Turnout Calculation
+    votes_data = load_votes()    
     total_voters = len(voters_data)
-
-    # 2. Calculate Votes and Race Tally for the SPECIFIC requested election
     target_election = get_election_by_id(election_id)
     if not target_election:
-        # Return empty data structure if election is not found
         return jsonify({
             'turnout_data': {'labels': ['No Data'], 'data': [1]},
             'bar_chart_data': {'labels': ['No Races'], 'datasets': []}
-        })
-        
+        })   
     election_votes_cast = 0
     race_results = {}
     METADATA_KEYS = ['transactionHash', 'electionId', 'timestamp', 'previous_hash', 'current_hash']
-
     for vote_key, vote in votes_data.items():
         if isinstance(vote, dict) and vote.get('electionId') == election_id:
             election_votes_cast += 1
             for race_slug, candidate_slug in vote.items():
                 if race_slug not in METADATA_KEYS:
-                    # Clean up the display name for the chart tooltip/title
                     race_display = race_slug.replace('-', ' ').title() 
                     race_tally = race_results.setdefault(race_display, {})
                     race_tally[candidate_slug] = race_tally.get(candidate_slug, 0) + 1
-
-    # 3. Build Turnout Data (Pie Chart)
     not_voted_count = total_voters - election_votes_cast
     turnout_data = {
         'labels': ['Votes Cast', 'Eligible Voters (Not Voted)'],
         'data': [election_votes_cast, not_voted_count]
     }
-
-    # 4. Build Bar Chart Data (Top Race)
     bar_chart_data = {'labels': [], 'datasets': []} 
-    
     if race_results:
-        # Get the first race found (simplest way to show 'Top Race')
         top_race_slug = next(iter(race_results.keys()), None)
-        
         if top_race_slug:
             race_data = race_results[top_race_slug]
-            
-            bar_chart_data['labels'] = [l.replace('-', ' ').title() for l in race_data.keys()] # Candidate Names
+            bar_chart_data['labels'] = [l.replace('-', ' ').title() for l in race_data.keys()] 
             bar_chart_data['datasets'].append({
-                'label': top_race_slug, # Race Name
+                'label': top_race_slug,
                 'data': list(race_data.values()),
-                # Colors are handled by the frontend JS
             })
-
     return jsonify({
         'turnout_data': turnout_data,
         'bar_chart_data': bar_chart_data
     })
-
 
 @app.route('/api/admin/decrypt-email/<string:voter_id>', methods=['POST'])
 @admin_required
@@ -1808,48 +1315,34 @@ def decrypt_voter_email_api(voter_id):
     """API to securely decrypt and return a single voter's email for verification."""
     voters = load_voters()
     voter_info = voters.get(voter_id)
-
     if voter_info:
         encrypted_email = voter_info.get('email')
         if encrypted_email:
             decrypted_email = decrypt_data(encrypted_email)
             if decrypted_email != "ENCRYPTION_FAILED":
                 return jsonify({'success': True, 'email': decrypted_email})
-    
     return jsonify({'success': False, 'error': 'Voter not found or decryption failed.'}), 404
 
 @app.route('/admin/check-integrity', methods=['POST'])
 @admin_required
 def check_integrity():
-    """Runs the cryptographic chain verification audit and redirects."""
-    
-    # 1. Run the audit function (verify_vote_chain_integrity must be defined globally)
+    """Runs the cryptographic chain verification audit and redirects."""    
     is_chain_valid, message = verify_vote_chain_integrity()
-    
-    # Optional: Print to the server console for immediate debugging/logging
     if is_chain_valid:
         print(f"AUDIT SUCCESS: {message}")
         flash(f'Chain Verification Success: {message}', 'success')
     else:
         simple_message = "Chain integrity failed."
-        
         if "Chain break detected" in message:
-            # Message example: "Chain break detected at record #1! Expected hash: 0x..., Found: 0x..."
             simple_message = "Critical chain break detected. Vote history has been compromised."
         elif "Integrity break detected" in message:
-            # Message example: "Integrity break detected at record #1! Recalculated hash does not match stored hash."
             simple_message = "Data tampering detected. Vote content in one block is invalid."
-            
-        # Flash the simplified, non-technical message to the frontend
         print(f"AUDIT FAILURE: {message}")
-        flash(f'CRITICAL FAILURE: {simple_message} Please review the server log for technical details.', 'error')
-        
-    # CRITICAL FIX: Ensure the redirect response object is returned
+        flash(f'CRITICAL FAILURE: {simple_message} Please review the server log for technical details.', 'error')        
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/truecast_landing.html')
 def truecast_landing():
-    # This route is just a helper, the main route is '/'
     return redirect(url_for('home'))
 
 @app.route('/help')
@@ -1859,97 +1352,76 @@ def help_page():
 @app.route('/about')
 def about():
     return render_template('truecast_about.html')
+
 @app.route('/accessibility')
 def accessibility():
     return render_template('truecast_accessibility.html')
+
 @app.route('/contactForm')
 def contactForm():
     return render_template('truecast_contactForm.html')
+
 @app.route('/privacypolicy')
 def privacypolicy():
     return render_template('truecast_privacypolicy.html')
+
 @app.route('/security')
 def security():
     return render_template('truecast_security.html')
+
 @app.route('/documentation')
 def documentation():
     return render_template('truecast_documentation.html')
 
 @app.errorhandler(404)
 def page_not_found(e):
-    # Note: '404.html' must exist in your templates folder
     return render_template('404.html'), 404
-# --- End Auxiliary Pages ---
-
 
 @app.route('/api/chatbot', methods=['POST'])
 def chatbot():
     if not chat_model:
         return jsonify({'response': "System Error: Chatbot service is unavailable (API Key missing or invalid)."}), 500
-
     data = request.get_json()
     user_message = data.get('message')
-
     if not user_message:
         return jsonify({'response': "Please enter a message."}), 400
-
     try:
-        # --- Context Management ---
-        # To verify if we have a conversation history in the session
         if 'chat_history' not in session:
             session['chat_history'] = []
-        
-        # Prepare the history for the Gemini API
-        # Gemini expects a list of content objects or dicts: [{'role': 'user', 'parts': ['msg']}]
         formatted_history = []
         for msg in session['chat_history']:
             formatted_history.append({
                 'role': msg['role'],
                 'parts': [msg['content']]
             })
-
-        # Start a chat session with history
-        chat = chat_model.start_chat(history=formatted_history)
-        
-        # Send the user's message
+        chat = chat_model.start_chat(history=formatted_history)        
         response = chat.send_message(user_message)
         bot_reply = response.text
-
-        # Update Session History
-        # We append the new interaction to the session memory
         session['chat_history'].append({'role': 'user', 'content': user_message})
         session['chat_history'].append({'role': 'model', 'content': bot_reply})
-        session.modified = True # Explicitly mark session as modified
-
-        # Return the plain text response to the frontend
+        session.modified = True 
         return jsonify({'response': bot_reply})
-
     except Exception as e:
         print(f"Gemini Chat Error: {e}")
         return jsonify({'response': "I'm having trouble connecting right now. Please try again later."}), 500
 
-
 if __name__ == "__main__":
-    # Ensure all necessary files exist upon startup
     if not os.path.exists(JSON_FILE):
         try:
             with open(JSON_FILE, 'w') as f:
                 json.dump({}, f)
         except Exception as e:
             print(f"Error creating {JSON_FILE}: {e}")
-
     if not os.path.exists(VOTES_FILE):
         try:
             with open(VOTES_FILE, 'w') as f:
                 json.dump({}, f)
         except Exception as e:
-            print(f"Error creating {VOTES_FILE}: {e}")
-            
+            print(f"Error creating {VOTES_FILE}: {e}")      
     if not os.path.exists(ELECTIONS_FILE):
         try:
             with open(ELECTIONS_FILE, 'w') as f:
                 json.dump([], f)
         except Exception as e:
             print(f"Error creating {ELECTIONS_FILE}: {e}")
-
     app.run(debug=True)
