@@ -208,13 +208,13 @@
             <div class="metric-label">Total Eligible Voters</div>
           </div>
         </div>
-        {% if results %}
+        <!-- {% if results %}
           <div style="margin-bottom: 3rem; margin-top: 2rem;">
             <h3 style="color: #2c3e50; margin-bottom: 1rem;">Election Vote Distribution (Primary Race)</h3>
             <div style="width: 100%; height: 350px;">
               <canvas id="raceBarChart"></canvas>
             </div>
-          </div>
+          </div> -->
 
           {% for race_slug, candidates in results.items() %}
             <div class="race-section">
@@ -228,6 +228,12 @@
                 </select>
               </h3>
               
+              <div style="margin-bottom: 1.5rem; margin-top: 1rem;">
+                <div style="width: 100%; height: 350px;">
+                  <canvas id="chart-{{ race_slug }}"></canvas>
+                </div>
+              </div>
+
               {% set total_votes_in_race = candidates.values() | sum %}
               {% set sorted_candidates = candidates.items() | sort(attribute=1, reverse=true) %}
               
@@ -246,7 +252,7 @@
               {% if total_votes_in_race > 0 and sorted_candidates | length > 1 %}
                 <div class="margin-analysis">
                     {% set winner_name = sorted_candidates[0][0] | replace('-', ' ') %}
-                    {% set runner_up_name = sorted_candidates[1][0] | replace('-', ' ') %}
+                    {% set runner_up_name = sorted_candidates[1][1] | replace('-', ' ') %}
                     <strong>WINNER: {{ winner_name | capitalize }}</strong> led by a margin of **{{ margin }}** votes (**{{ margin_percentage }}%**) over {{ runner_up_name | capitalize }}.
                 </div>
               {% endif %}
@@ -274,38 +280,36 @@
       const RESULTS_DATA = {{ results | tojson | safe }};
       const ACTIVE_ELECTION_ID = '{{ election_id }}';
 
-      function renderChart(raceResults) {
+      // A more generic function to render a chart for a specific race
+      function renderChart(raceSlug, raceData) {
         const chartData = {
           labels: [],
           datasets: []
         };
         
-        // We render the first race found on the page in the main chart
-        const firstRaceSlug = Object.keys(raceResults)[0];
-        if (!firstRaceSlug) return;
-        
-        const raceData = raceResults[firstRaceSlug];
+        if (!raceData) return;
         
         // Convert slugs to display names and get counts
-        const candidateLabels = Object.keys(raceData).map(slug => slug.replace('-', ' ').toUpperCase());
+        const candidateLabels = Object.keys(raceData).map(slug => slug.replace(/-/g, ' ').toUpperCase());
         const voteCounts = Object.values(raceData);
         
         chartData.labels = candidateLabels;
         chartData.datasets.push({
-          label: firstRaceSlug.replace('-', ' ').toUpperCase(),
+          label: raceSlug.replace(/-/g, ' ').toUpperCase(),
           data: voteCounts,
           backgroundColor: ['#3498db', '#27ae60', '#f1c40f', '#e74c3c', '#9b59b6', '#1abc9c'], 
           borderColor: '#f5f7fa',
           borderWidth: 2
         });
 
-        const ctx = document.getElementById('raceBarChart').getContext('2d');
+        const ctx = document.getElementById(`chart-${raceSlug}`).getContext('2d');
         
-        if (window.raceChartInstance) {
-          window.raceChartInstance.destroy();
+        // Check if a chart already exists for this context and destroy it
+        if (window.chartInstances && window.chartInstances[raceSlug]) {
+          window.chartInstances[raceSlug].destroy();
         }
         
-        window.raceChartInstance = new Chart(ctx, {
+        const newChart = new Chart(ctx, {
           type: 'bar', 
           data: chartData,
           options: {
@@ -315,7 +319,7 @@
               legend: { display: false },
               title: {
                 display: true,
-                text: `Results for: ${firstRaceSlug.replace('-', ' ').toUpperCase()}`
+                text: `Results for: ${raceSlug.replace(/-/g, ' ').toUpperCase()}`
               }
             },
             scales: {
@@ -329,6 +333,10 @@
             }
           }
         });
+
+        // Store chart instance for potential future destruction/updates
+        window.chartInstances = window.chartInstances || {};
+        window.chartInstances[raceSlug] = newChart;
       }
 
       function loadRegionalResults(electionId, raceSlug, region) {
@@ -341,7 +349,10 @@
 
       document.addEventListener('DOMContentLoaded', function() {
         if (Object.keys(RESULTS_DATA).length > 0) {
-          renderChart(RESULTS_DATA);
+          // Loop through all races and render a chart for each
+          for (const raceSlug in RESULTS_DATA) {
+            renderChart(raceSlug, RESULTS_DATA[raceSlug]);
+          }
         }
       });
     </script>
