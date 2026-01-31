@@ -1,0 +1,7 @@
+.env
+serviceAccountKey.json
+elections.json
+voters.json
+votes.json
+key.py
+__pycache__/
